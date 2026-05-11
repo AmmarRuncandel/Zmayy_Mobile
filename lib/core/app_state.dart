@@ -65,6 +65,24 @@ class ZmayyAppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> setGhostMode(bool enabled) async {
+    final current = _currentProfile;
+    if (current == null) return;
+
+    final updated = current.copyWith(isGhostMode: enabled);
+    await updateProfileField(updated);
+
+    if (enabled) {
+      _visibleUsers.clear();
+      notifyListeners();
+      return;
+    }
+
+    if (lastLat != null && lastLng != null) {
+      await fetchNearbyUsers(lastLat!, lastLng!);
+    }
+  }
+
   void clearProfile() {
     _currentProfile = null;
     _currentUserId = null;

@@ -19,6 +19,7 @@ class MapScreenState extends State<MapScreen> {
   LatLng? _center;
   String? _error;
   bool _requesting = true;
+  VisibleUser? _selectedUser;
 
   @override
   void initState() {
@@ -92,6 +93,7 @@ class MapScreenState extends State<MapScreen> {
               ),
               MarkerLayer(
                 markers: appState.visibleUsers
+                    .where((u) => u.lastLat != null && u.lastLng != null)
                     .map((u) => _buildMarker(u))
                     .toList(),
               ),
@@ -114,9 +116,17 @@ class MapScreenState extends State<MapScreen> {
         // ── Bottom-left overlay badges ────────────────────────────────────
         Positioned(
           left: 14,
-          bottom: 14,
+          bottom: 92,
           child: _buildBadgeColumn(appState, isGhost),
         ),
+
+        if (_selectedUser != null)
+          Positioned(
+            top: 16,
+            left: 18,
+            right: 18,
+            child: _buildMarkerPopup(_selectedUser!),
+          ),
       ],
     );
   }
@@ -132,14 +142,15 @@ class MapScreenState extends State<MapScreen> {
       point: LatLng(user.lastLat ?? 0.0, user.lastLng ?? 0.0),
       builder: (ctx) => GestureDetector(
         onTap: () {
-          final dist = (user.distanceKm * 1000).round();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                '${user.username ?? 'Pengguna'} · ${dist}m'),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF181A20),
-            duration: const Duration(seconds: 2),
-          ));
+          setState(() {
+            _selectedUser = user;
+          });
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!mounted) return;
+            if (_selectedUser?.id == user.id) {
+              setState(() => _selectedUser = null);
+            }
+          });
         },
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -198,6 +209,7 @@ class MapScreenState extends State<MapScreen> {
 
   // ── Badge column ───────────────────────────────────────────────────────────
   Widget _buildBadgeColumn(ZmayyAppState appState, bool isGhost) {
+    final nearbyUsers = appState.visibleUsers.length;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -220,7 +232,7 @@ class MapScreenState extends State<MapScreen> {
                   color: Color(0xFFD1D5DB), size: 14),
               const SizedBox(width: 6),
               Text(
-                isGhost ? '—' : '${appState.nearbyStrangersCount} pengguna di sekitar',
+                isGhost ? '— pengguna di sekitar' : '$nearbyUsers pengguna di sekitar',
                 style: const TextStyle(
                     color: Color(0xFFD1D5DB),
                     fontSize: 12,
@@ -253,6 +265,45 @@ class MapScreenState extends State<MapScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMarkerPopup(VisibleUser user) {
+    final distanceText = user.distanceKm < 1
+        ? '${(user.distanceKm * 1000).round()} m'
+        : '${user.distanceKm.toStringAsFixed(1)} km';
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF181A20).withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF2B2F36)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x22000000), blurRadius: 14),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.place_outlined, color: Color(0xFFFCD535), size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${user.username ?? 'Pengguna'} · $distanceText',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

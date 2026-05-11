@@ -106,7 +106,15 @@ class _FriendsPanelState extends State<FriendsPanel> {
   Widget build(BuildContext context) {
     final query = _searchCtrl.text.trim().toLowerCase();
     return Container(
-      color: const Color(0xFF0B0E11),
+      decoration: BoxDecoration(
+        color: const Color(0xFF181A20).withValues(alpha: 0.88),
+        border: Border(
+          right: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 1),
+        ),
+        boxShadow: const [
+          BoxShadow(color: Color(0x22000000), blurRadius: 16, offset: Offset(2, 0)),
+        ],
+      ),
       child: SafeArea(
         child: Column(
           children: [
@@ -191,19 +199,6 @@ class _FriendsPanelState extends State<FriendsPanel> {
             ),
           ),
           const Spacer(),
-          GestureDetector(
-            onTap: _refresh,
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1C1F27),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.refresh, color: Colors.white70, size: 18),
-            ),
-          ),
-          const SizedBox(width: 10),
           GestureDetector(
             onTap: widget.onClose,
             child: Container(

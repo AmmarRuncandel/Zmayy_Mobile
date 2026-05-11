@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_state.dart';
 import '../../core/secure_storage.dart';
 import '../../data/models/user_profile.dart';
 import '../auth/login_screen.dart';
 
-class ProfilePanel extends StatelessWidget {
+class ProfilePanel extends StatefulWidget {
   final VoidCallback onClose;
   const ProfilePanel({super.key, required this.onClose});
+
+  @override
+  State<ProfilePanel> createState() => _ProfilePanelState();
+}
+
+class _ProfilePanelState extends State<ProfilePanel> {
+  bool _showDeleteConfirm = false;
+  static const MethodChannel _nfcChannel = MethodChannel('zmayy/nfc');
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +79,7 @@ class ProfilePanel extends StatelessWidget {
           ),
           const Spacer(),
           GestureDetector(
-            onTap: onClose,
+            onTap: widget.onClose,
             child: Container(
               width: 32,
               height: 32,
@@ -178,8 +187,7 @@ class ProfilePanel extends StatelessWidget {
               onChanged: profile == null
                   ? null
                   : (val) async {
-                      final updated = profile.copyWith(isGhostMode: val);
-                      await appState.updateProfileField(updated);
+                      await appState.setGhostMode(val);
                     },
               activeThumbColor: const Color(0xFFFCD535),
               activeTrackColor: const Color(0xFFD4AC1A),
@@ -203,12 +211,7 @@ class ProfilePanel extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right,
                 color: Color(0xFF848E9C), size: 20),
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Pengaturan notifikasi — segera hadir'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              _showNotificationsDialog(context, appState, profile);
             },
             showDivider: true,
           ),
@@ -219,12 +222,7 @@ class ProfilePanel extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right,
                 color: Color(0xFF848E9C), size: 20),
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Pengaturan privasi — segera hadir'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              _showPrivacyDialog(context, appState, profile);
             },
             showDivider: false,
           ),
@@ -286,7 +284,7 @@ class ProfilePanel extends StatelessWidget {
   Widget _buildQrSection(UserProfile? profile) {
     final handle = '@${profile?.username.toLowerCase().replaceAll(' ', '') ?? '—'}';
     final profileUrl =
-        'https://zmayy.vercel.app/u/${profile?.id ?? ''}';
+        'https://zmayy.com/u/${profile?.id ?? ''}';
     final qrUrl =
         'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent(profileUrl)}&bgcolor=FFFFFF&color=0B0E11&margin=4';
 
@@ -354,6 +352,13 @@ class ProfilePanel extends StatelessWidget {
                       onTap: () async {
                         await Clipboard.setData(
                             ClipboardData(text: profileUrl));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tautan profil disalin.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -409,8 +414,8 @@ class ProfilePanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () {
-                // NFC / share — Phase 4
+              onPressed: () async {
+                await _shareViaNfcFallback(profileUrl);
               },
               icon: const Icon(Icons.nfc,
                   color: Color(0xFFFCD535), size: 16),
@@ -427,6 +432,57 @@ class ProfilePanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _shareViaNfcFallback(String profileUrl) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final result = await _nfcChannel.invokeMethod<bool>(
+        'writeProfileLink',
+        <String, dynamic>{'url': profileUrl},
+      );
+      if (result == true) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Tautan berhasil ditulis ke NFC.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      // Continue to share-sheet fallback.
+    }
+
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: 'Terhubung di Zmayy: $profileUrl',
+          subject: 'Profil Zmayy',
+        ),
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Membuka menu berbagi. Jika dibatalkan, tautan bisa disalin manual.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    } catch (_) {
+      // Continue to clipboard fallback.
+    }
+
+    await Clipboard.setData(ClipboardData(text: profileUrl));
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('NFC/share tidak tersedia, tautan disalin ke clipboard.'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -463,6 +519,338 @@ class ProfilePanel extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _showNotificationsDialog(
+    BuildContext context,
+    ZmayyAppState appState,
+    UserProfile? profile,
+  ) async {
+    if (profile == null) return;
+    bool enabled = profile.notifyGlobal;
+    bool requests = profile.notifyRequests;
+    bool messages = profile.notifyMessages;
+    bool sound = profile.notifySound;
+
+    final result = await showDialog<UserProfile>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Dialog(
+              backgroundColor: const Color(0xFF181A20),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Notifikasi',
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Color(0xFF2B2F36), height: 1),
+                    const SizedBox(height: 12),
+                    _dialogToggle(
+                      title: 'Aktifkan Notifikasi',
+                      subtitle: 'Aktifkan atau matikan semua notifikasi',
+                      value: enabled,
+                      onChanged: (value) async {
+                        setModalState(() => enabled = value);
+                        await appState.updateProfileField(profile.copyWith(notifyGlobal: value));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('JENIS NOTIFIKASI', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    _dialogToggle(
+                      title: 'Permintaan Teman',
+                      subtitle: 'Saat seseorang mengirim permintaan pertemanan',
+                      value: requests,
+                      enabled: enabled,
+                      onChanged: (value) async {
+                        if (!enabled) return;
+                        setModalState(() => requests = value);
+                        await appState.updateProfileField(profile.copyWith(notifyRequests: value));
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _dialogToggle(
+                      title: 'Pesan',
+                      subtitle: 'Pesan chat baru dari teman',
+                      value: messages,
+                      enabled: enabled,
+                      onChanged: (value) async {
+                        if (!enabled) return;
+                        setModalState(() => messages = value);
+                        await appState.updateProfileField(profile.copyWith(notifyMessages: value));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('SUARA', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    _dialogToggle(
+                      title: 'Suara Notifikasi',
+                      subtitle: 'Putar suara saat ada notifikasi baru',
+                      value: sound,
+                      enabled: enabled,
+                      onChanged: (value) async {
+                        if (!enabled) return;
+                        setModalState(() => sound = value);
+                        await appState.updateProfileField(profile.copyWith(notifySound: value));
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(
+                          profile.copyWith(
+                            notifyGlobal: enabled,
+                            notifyRequests: requests,
+                            notifyMessages: messages,
+                            notifySound: sound,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2B2F36),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Selesai', style: TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _showPrivacyDialog(
+    BuildContext context,
+    ZmayyAppState appState,
+    UserProfile? profile,
+  ) async {
+    if (profile == null) return;
+    bool isPublic = profile.isPublic;
+    _showDeleteConfirm = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Dialog(
+              backgroundColor: const Color(0xFF181A20),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Privasi & Keamanan',
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Color(0xFF2B2F36), height: 1),
+                    const SizedBox(height: 12),
+                    const Text('VISIBILITAS', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    _dialogToggle(
+                      title: 'Profil Publik',
+                      subtitle: 'Izinkan pengguna di sekitar (+1 km) melihat kamu di peta',
+                      value: isPublic,
+                      onChanged: (value) async {
+                        setModalState(() => isPublic = value);
+                        await appState.updateProfileField(profile.copyWith(isPublic: value));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('AKUN', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () => setModalState(() => _showDeleteConfirm = !_showDeleteConfirm),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A1313),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFF7F1D1D)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.delete_outline, color: Color(0xFFF87171)),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Hapus Akun', style: TextStyle(color: Color(0xFFF87171), fontSize: 15, fontWeight: FontWeight.w700)),
+                                  SizedBox(height: 2),
+                                  Text('Hapus akun dan semua data secara permanen', style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_showDeleteConfirm) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3A1515),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFB91C1C)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Hapus Akun Secara Permanen?',
+                              style: TextStyle(color: Color(0xFFF87171), fontWeight: FontWeight.w800, fontSize: 14),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Tindakan ini tidak dapat dibatalkan. Seluruh data profil, teman, pesan, dan lokasi akan dihapus selamanya.',
+                              style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => setModalState(() => _showDeleteConfirm = false),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFF7F1D1D)),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: const Text('Batal'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Endpoint hapus akun belum tersedia di mobile API.'),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFDC2626),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: const Text('Lanjutkan'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2B2F36),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Selesai', style: TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _dialogToggle({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    bool enabled = true,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: enabled ? const Color(0xFF848E9C) : const Color(0xFF5B6170),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: enabled ? onChanged : null,
+            activeThumbColor: const Color(0xFFFCD535),
+            activeTrackColor: const Color(0xFFD4AC1A),
+            inactiveThumbColor: Colors.white54,
+            inactiveTrackColor: const Color(0xFF2B2F36),
+          ),
+        ],
       ),
     );
   }

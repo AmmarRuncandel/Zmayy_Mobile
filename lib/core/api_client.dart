@@ -60,6 +60,9 @@ class ApiClient {
 
   Future<http.Response> _send(http.Request request) async {
     developer.log('API Request: ${request.method} ${request.url}', level: 800);
+    if (request.method == 'POST' && request.body.isNotEmpty) {
+      developer.log('  Request body: ${request.body}', level: 800);
+    }
     
     try {
       final streamed = await _inner.send(request).timeout(
@@ -72,6 +75,10 @@ class ApiClient {
       final response = await http.Response.fromStream(streamed);
       
       developer.log('API Response: ${response.statusCode} from ${request.url}', level: 800);
+      if (response.statusCode < 200 || response.statusCode > 201) {
+        developer.log('  Response body: ${response.body.isEmpty ? "<empty>" : response.body}', level: 800);
+        developer.log('  Content-Type: ${response.headers["content-type"]}', level: 800);
+      }
 
       final status = response.statusCode;
       // Do not auto-follow redirects for API calls. A redirect often indicates the backend
@@ -124,12 +131,27 @@ class ApiClient {
 
   String _messageFromResponse(int status, String body, String contentType) {
     final trimmedBody = body.trim();
+    
+    // Provide helpful message for common HTTP errors
+    String statusMessage;
+    if (status == 405) {
+      statusMessage = 'The API endpoint does not support this request method. This usually means the backend endpoint is not properly configured.';
+    } else if (status == 404) {
+      statusMessage = 'The API endpoint was not found. The backend may not be deployed or the endpoint path is wrong.';
+    } else if (status == 500) {
+      statusMessage = 'Server error. The backend encountered an error processing your request.';
+    } else if (status >= 400 && status < 500) {
+      statusMessage = 'Client error (HTTP $status).';
+    } else {
+      statusMessage = 'HTTP $status.';
+    }
+    
     if (trimmedBody.isEmpty) {
-      return 'HTTP $status returned an empty response.';
+      return '$statusMessage The server returned an empty response.';
     }
 
     if (!contentType.toLowerCase().contains('application/json')) {
-      return 'HTTP $status returned non-JSON content. Raw body: $trimmedBody';
+      return '$statusMessage Non-JSON content: $trimmedBody';
     }
 
     try {
@@ -141,6 +163,6 @@ class ApiClient {
       // fall through to raw body
     }
 
-    return 'HTTP $status: $trimmedBody';
+    return '$statusMessage $trimmedBody';
   }
 }

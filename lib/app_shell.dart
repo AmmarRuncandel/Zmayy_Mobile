@@ -156,7 +156,7 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: FractionallySizedBox(
-                  widthFactor: 0.88,
+                  widthFactor: 0.85,
                   child: _activePanel == _kFriends
                       ? FriendsPanel(onClose: _closePanel)
                       : ChatListPanel(onClose: _closePanel),
@@ -171,40 +171,46 @@ class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
               child: ProfilePanel(onClose: _closePanel),
             ),
 
-          // Layer 4 — Recenter button (only while Teman panel active)
-          if (_activePanel == _kFriends)
+          // Layer 4 — Recenter button (hidden when profile panel is open)
+          if (_activePanel != _kProfile)
             Positioned(
               right: 16,
-              bottom: 76,
+              bottom: 128,
               child: _RecenterFab(
                 onTap: () => _mapKey.currentState?.recenter(),
               ),
             ),
+
+          // Layer 5 — Floating bottom navigation
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 12,
+            child: _buildBottomNav(),
+          ),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
   // ── Bottom Navigation Bar ──────────────────────────────────────────────────
 
   Widget _buildBottomNav() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF181A20).withValues(alpha: 0.97),
-        border: Border(
-          top: BorderSide(
-              color: Colors.white.withValues(alpha: 0.04), width: 1),
-        ),
-        boxShadow: const [
-          BoxShadow(
-              color: Color(0x12FCD535), blurRadius: 24, spreadRadius: 2),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 60,
+    return SafeArea(
+      top: false,
+      child: Center(
+        child: Container(
+          width: 252,
+          height: 72,
+          decoration: BoxDecoration(
+            color: const Color(0xFF181A20).withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x22000000), blurRadius: 18, offset: Offset(0, 6)),
+              BoxShadow(color: Color(0x18FCD535), blurRadius: 20),
+            ],
+          ),
           child: Row(
             children: [
               _navItem(index: _kFriends, icon: Icons.people_outline, activeIcon: Icons.people, label: 'Teman'),

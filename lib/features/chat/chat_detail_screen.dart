@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,6 +20,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ChatRepository _repo = ChatRepository();
   final TextEditingController _ctrl = TextEditingController();
   final ScrollController _scroll = ScrollController();
+  final List<ChatMessage> _messages = <ChatMessage>[];
+  Timer? _pollTimer;
 
   bool _loading = true;
   bool _sending = false;
@@ -27,10 +31,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void initState() {
     super.initState();
     _load();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      _pollLatest();
+    });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _ctrl.dispose();
     _scroll.dispose();
     super.dispose();
@@ -42,12 +50,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _error = null;
     });
     try {
-      // Load DM history (if backend endpoint isn't ready yet, the error will be shown clearly).
       final msgs = await _repo.getDirectHistory(widget.friend.id);
       if (!mounted) return;
-      final appState = Provider.of<ZmayyAppState>(context, listen: false);
-      // Reuse appState chat list temporarily; Phase 3 will isolate DM state.
-      appState.replaceChatMessages(msgs);
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(_pruneMessages(msgs));
+      });
+      _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -61,18 +71,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    final myUserId = Provider.of<ZmayyAppState>(context, listen: false).currentUserId ?? '';
+    final optimistic = ChatMessage(
+      id: 'temp-${DateTime.now().microsecondsSinceEpoch}',
+      senderId: myUserId,
+      content: text,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      senderUsername: null,
+    );
+
     try {
+      if (!mounted) return;
+      _ctrl.clear();
+      setState(() {
+        _messages.add(optimistic);
+      });
+      _scrollToBottom();
+
       final msg = await _repo.sendDirectMessage(widget.friend.id, text);
       if (!mounted) return;
-      final appState = Provider.of<ZmayyAppState>(context, listen: false);
-      appState.appendChatMessage(msg);
-      _ctrl.clear();
+      setState(() {
+        final tempIndex = _messages.indexWhere((message) => message.id == optimistic.id);
+        if (tempIndex >= 0) {
+          _messages[tempIndex] = msg;
+        } else {
+          _messages.add(msg);
+        }
+        final pruned = _pruneMessages(List<ChatMessage>.from(_messages));
+        _messages
+          ..clear()
+          ..addAll(pruned);
+      });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients) return;
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+        _scrollToBottom();
       });
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        _messages.removeWhere((message) => message.id == optimistic.id);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
       );
@@ -81,11 +119,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  Future<void> _pollLatest() async {
+    if (!mounted || _loading || _sending) return;
+    try {
+      final latest = await _repo.getDirectHistory(widget.friend.id);
+      if (!mounted) return;
+
+      final temp = _messages.where((message) => message.id.startsWith('temp-')).toList(growable: false);
+      final merged = <ChatMessage>[...latest, ...temp];
+      final next = _pruneMessages(merged);
+
+      if (_isSameMessages(_messages, next)) return;
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(next);
+      });
+      _scrollToBottom();
+    } catch (_) {
+      // Keep silent on poll errors; explicit errors are shown by initial load/send actions.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final appState = Provider.of<ZmayyAppState>(context);
-    final messages = appState.chatMessages;
-
     return Scaffold(
       backgroundColor: const Color(0xFF0B0E11),
       body: SafeArea(
@@ -104,7 +161,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     )
                   : (_error != null
                       ? _buildError()
-                      : (messages.isEmpty ? _buildEmptyState() : _buildMessages(messages))),
+                        : (_messages.isEmpty ? _buildEmptyState() : _buildMessages(_messages))),
             ),
             _buildUploadHint(),
             _buildComposer(),
@@ -118,9 +175,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final initials = widget.friend.username.trim().isEmpty
         ? 'ZM'
         : (widget.friend.username.trim().length >= 2 ? widget.friend.username.trim().substring(0, 2).toUpperCase() : widget.friend.username.trim()[0].toUpperCase());
+    final myUserId = Provider.of<ZmayyAppState>(context, listen: false).currentUserId;
+    final ownMessages = _messages.where((message) => message.senderId == myUserId).length;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 10, 12, 6),
+      padding: const EdgeInsets.fromLTRB(10, 8, 12, 6),
       child: Row(
         children: [
           IconButton(
@@ -140,13 +199,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.friend.username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                Text(
+                  widget.friend.username,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                ),
                 const SizedBox(height: 2),
                 Text(
-                  '${widget.friend.subtitle} • 10 pesan sebelum hapus otomatis',
-                  style: const TextStyle(color: Color(0xFFFCD535), fontSize: 11.5, fontWeight: FontWeight.w700),
+                  widget.friend.subtitle,
+                  style: const TextStyle(color: Color(0xFFFCD535), fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  '${ownMessages.clamp(0, 10)} pesan sebelum hapus otomatis',
+                  style: const TextStyle(color: Color(0xFF848E9C), fontSize: 10.5, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -169,7 +237,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         decoration: BoxDecoration(
           color: const Color(0xFF181A20),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF2B2F36)),
+          border: Border.all(color: const Color(0x66FCD535)),
         ),
         child: const Text(
           'Mode Efemeral: Pesan dihapus otomatis setelah 10 percakapan atau 3 jam.',
@@ -214,17 +282,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 70,
-              height: 70,
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
-                color: const Color(0xFF181A20),
+                color: const Color(0xFF1A1C22),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: const Color(0xFF2B2F36)),
               ),
-              child: const Icon(Icons.crop_square_rounded, color: Color(0xFFFCD535), size: 28),
+              child: const Center(
+                child: Icon(Icons.crop_square_rounded, color: Color(0xFFFCD535), size: 28),
+              ),
             ),
             const SizedBox(height: 16),
-            const Text('Belum ada pesan.', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+            const Text(
+              'Belum ada pesan.',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 8),
             const Text(
               'Kirim pesan pertama. Pesan akan terhapus otomatis setelah 10 percakapan.',
@@ -257,9 +330,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               borderRadius: BorderRadius.circular(14),
               border: mine ? null : Border.all(color: const Color(0xFF2B2F36)),
             ),
-            child: Text(
-              m.content,
-              style: TextStyle(color: mine ? const Color(0xFF0B0E11) : Colors.white70, fontWeight: FontWeight.w600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  m.content,
+                  style: TextStyle(
+                    color: mine ? const Color(0xFF0B0E11) : Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatMessageTime(m.createdAt),
+                  style: TextStyle(
+                    color: mine ? const Color(0xFF0B0E11).withAlpha(160) : const Color(0xFF848E9C),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -323,6 +413,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               child: TextField(
                 controller: _ctrl,
+                minLines: 1,
+                maxLines: 1,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: 'Tulis pesan...',
@@ -357,6 +449,45 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
     );
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
+  }
+
+  List<ChatMessage> _pruneMessages(List<ChatMessage> input) {
+    final now = DateTime.now().toUtc();
+    final recent = input.where((message) {
+      final parsed = DateTime.tryParse(message.createdAt);
+      if (parsed == null) return true;
+      final utc = parsed.isUtc ? parsed : parsed.toUtc();
+      return now.difference(utc) <= const Duration(hours: 3);
+    }).toList();
+
+    if (recent.length <= 10) return recent;
+    return recent.sublist(recent.length - 10);
+  }
+
+  String _formatMessageTime(String createdAt) {
+    final parsed = DateTime.tryParse(createdAt);
+    if (parsed == null) return '';
+    final local = parsed.toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
+  bool _isSameMessages(List<ChatMessage> a, List<ChatMessage> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].content != b[i].content || a[i].createdAt != b[i].createdAt) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
