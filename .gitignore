@@ -7,6 +7,7 @@
 .atom/
 .build/
 .buildlog/
+.env
 .history
 .svn/
 .swiftpm/
@@ -43,5 +44,3 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-
-config.json

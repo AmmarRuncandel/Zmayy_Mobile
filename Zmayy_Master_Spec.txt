@@ -1,0 +1,769 @@
+# Zmayy Master Specification
+
+Document ID: ZMAYY-WEB-GROUNDTRUTH-MASTER
+Generated from canonical Next.js + Supabase codebase on: 2026-05-11
+Scope: app, components, hooks, context, utils, API routes, and visual tokens/styles
+
+## 0. Ground Truth Rules
+
+1. This document is derived from the current repository implementation, not aspirational requirements.
+2. Where repository behavior differs from product assumptions, repository behavior is canonical.
+3. Supabase RLS policies and SQL migration bodies are not present in this repository. Runtime code assumes policies exist server-side.
+4. For each feature below: explanation, exact canonical snippet, and strict Flutter parity goal are provided.
+
+---
+
+## SECTION 1: Theme and Pure Visual Ground Truth
+
+### 1.1 Absolute Base Theme and Token System
+
+Deep analytical explanation:
+- Global visual identity is tokenized in app/globals.css under @theme.
+- Absolute dark base is #0B0E11 via --color-base and applied to html/body.
+- Surface layer is #181A20 via --color-surface.
+- Gold hierarchy is split into --color-gold (#FCD535) and --color-gold-dim (#D4AC1A).
+- Viewport themeColor is also locked to #0B0E11 in app/layout.tsx, so browser chrome/PWA bars match the app base.
+
+Canonical code snippet (app/globals.css):
+~~~css
+@theme {
+  --color-base:    #0B0E11;
+  --color-surface: #181A20;
+  --color-gold:    #FCD535;
+  --color-gold-dim:#D4AC1A;
+  --color-primary: #EAECEF;
+  --color-muted:   #848E9C;
+  --color-border:  #2B2F36;
+  --color-overlay: rgba(11,14,17,0.75);
+}
+
+html, body {
+  background-color: var(--color-base);
+  color: var(--color-primary);
+}
+~~~
+
+Canonical code snippet (app/layout.tsx):
+~~~ts
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 5,
+  viewportFit: 'cover',
+  themeColor: '#0B0E11',
+};
+~~~
+
+Mobile parity goal:
+- Flutter theme must define Color(0xFF0B0E11) as primary scaffold background and system overlay theme color.
+- Surface containers must default to Color(0xFF181A20).
+- Preserve token pair for gold: primary #FCD535 and dim #D4AC1A.
+
+### 1.2 Glassmorphism Card Parameters
+
+Deep analytical explanation:
+- Reusable class .glass defines the glass foundation and is used across login/modal/nav/panels.
+- Glass implementation is not generic blur only: it combines semi-opaque dark surface + blur + explicit border token.
+- Panel-level variants add specific opacity/border combinations such as bg-[#181A20]/80 and border-white/5.
+
+Canonical code snippet (app/globals.css):
+~~~css
+.glass {
+  background: rgba(24,26,32,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--color-border);
+}
+~~~
+
+Canonical code snippet (example panel shell, app/components/chat/ChatPanel.tsx):
+~~~tsx
+className="fixed top-0 right-0 h-full flex flex-col z-30 bg-[#181A20]/80 backdrop-blur-xl border-l border-white/5"
+~~~
+
+Mobile parity goal:
+- Flutter panels must replicate:
+  - Background alpha equivalent to rgba(24,26,32,0.85) for generic glass.
+  - Blur sigma equivalent to CSS blur(20px) for primary glass and blur-xl style for side panels.
+  - Border color equivalent to #2B2F36 or white 5 percent variant for side panels.
+- Use BackdropFilter + ClipRRect + layered Container to preserve depth.
+
+### 1.3 Signature Golden Glow Specifications
+
+Deep analytical explanation:
+- Golden glow is not single-style; repository uses a consistent family of yellow glows with varying radius/intensity by context.
+- Primary signature glow appears in CTA buttons and floating UI:
+  - 0 4px 20px rgba(252,213,53,0.28)
+  - 0 0 32px rgba(252,213,53,0.35)
+  - 0 0 18px rgba(252,213,53,0.25), 0 0 6px rgba(252,213,53,0.12)
+- Map friend marker glow uses 0 0 12px with friend/stranger color branching.
+
+Canonical code snippets:
+
+Login CTA glow (app/login/page.tsx):
+~~~tsx
+style={{
+  background:  '#FCD535',
+  color:       '#0B0E11',
+  boxShadow:   '0 4px 20px rgba(252,213,53,0.28)',
+}}
+~~~
+
+Logo glow (app/login/page.tsx):
+~~~tsx
+style={{ boxShadow: '0 0 32px rgba(252,213,53,0.35)' }}
+~~~
+
+Install button glow (app/components/ui/NavBar.tsx):
+~~~tsx
+boxShadow: '0 0 18px rgba(252,213,53,0.25), 0 0 6px rgba(252,213,53,0.12)'
+~~~
+
+Map friend glow discriminator (app/components/map/MapViewInner.tsx):
+~~~ts
+const shadowColor = isFriend ? 'rgba(252,213,53,0.45)' : 'rgba(75,85,99,0.3)';
+~~~
+
+Mobile parity goal:
+- Flutter box shadows must preserve exact alpha profile and blur hierarchy, not only color.
+- Required minimum glow set:
+  - CTA: blur ~=20, y offset ~=4, alpha 0.28.
+  - Hero/logo accent: blur ~=32, alpha 0.35.
+  - Secondary floating accent: dual glow (18@0.25 + 6@0.12).
+- Map marker glow must branch by relationship status exactly as in Section 2.
+
+---
+
+## SECTION 2: Spatial Map Logic and User Discrimination
+
+### 2.1 GPS Coordinate Sync (lat/lng lifecycle)
+
+Deep analytical explanation:
+- Coordinates are tracked by navigator.geolocation.watchPosition in MapViewInner.
+- On each position callback:
+  - local state userPos/currentLat/currentLng is updated.
+  - Supabase profiles row for current user is updated with last_lat, last_lng, updated_at.
+- If ghost mode is active, geolocation tracking is skipped and DB coordinates are wiped on transition off->on.
+
+Canonical code snippet (app/components/map/MapViewInner.tsx):
+~~~ts
+useEffect(() => {
+  if (isGhostMode || !('geolocation' in navigator)) return;
+
+  const watchId = navigator.geolocation.watchPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      setUserPos([lat, lng]);
+      setCurrentLat(lat);
+      setCurrentLng(lng);
+
+      await supabase
+        .from('profiles')
+        .update({ last_lat: lat, last_lng: lng, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+    },
+    () => {/* permission denied or unavailable */},
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+  );
+
+  return () => navigator.geolocation.clearWatch(watchId);
+}, [userId, supabase, isGhostMode]);
+~~~
+
+Ghost wipe transition (app/components/map/MapViewInner.tsx):
+~~~ts
+if (!wasGhost && isGhostMode) {
+  supabase
+    .from('profiles')
+    .update({ last_lat: null, last_lng: null })
+    .eq('id', userId)
+}
+~~~
+
+Mobile parity goal:
+- Flutter must run continuous position stream with high-accuracy and periodic DB updates to profiles.last_lat/last_lng/updated_at.
+- When ghost mode turns true, immediately null last_lat and last_lng on server and stop outbound location stream.
+- Local map should preserve last known fallback center while hidden.
+
+### 2.2 get_visible_users RPC and strict <= 1 km boundary
+
+Deep analytical explanation:
+- Visibility pipeline has two layers:
+  1) Supabase RPC get_visible_users(caller_id, user_lat, user_lng)
+  2) TypeScript post-filter in route handler that hard-enforces distance <= 1 km.
+- Route-level enforcement computes Haversine distance via calculateDistanceKm and removes entries with distanceKm > 1.
+- This creates a strict final contract for mobile response payload even if RPC returns broader rows.
+- SQL body for RPC is not present in repository; however repository type contract states function returns friends at any distance plus public strangers within 1 km.
+
+Canonical code snippet (app/api/map/visible/route.ts):
+~~~ts
+const { data, error } = await auth.supabase.rpc('get_visible_users', {
+  caller_id: auth.user.id,
+  user_lat: lat,
+  user_lng: lng,
+});
+
+const visibleUsers = ((data ?? []) as VisibleUser[])
+  .map((row) => {
+    const rowLat = toNumberOrNull(row.last_lat);
+    const rowLng = toNumberOrNull(row.last_lng);
+
+    if (rowLat === null || rowLng === null) return null;
+
+    const distanceKm = calculateDistanceKm(lat, lng, rowLat, rowLng);
+    if (distanceKm > 1) return null;
+
+    return { ... };
+  })
+  .filter((row): row is VisibleUserResponse => row !== null);
+~~~
+
+Canonical distance math (app/api/_lib/mobile-rest.ts):
+~~~ts
+export function calculateDistanceKm(fromLat: number, fromLng: number, toLat: number, toLng: number): number {
+  const earthRadiusKm = 6_371;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+
+  const deltaLat = toRadians(toLat - fromLat);
+  const deltaLng = toRadians(toLng - fromLng);
+  const lat1 = toRadians(fromLat);
+  const lat2 = toRadians(toLat);
+
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadiusKm * c;
+}
+~~~
+
+Canonical repository contract (utils/supabase/types.ts):
+~~~ts
+/**
+ * Row returned by the get_visible_users(caller_id, user_lat, user_lng) RPC.
+ * The function returns friends (any distance) + public strangers within 1 km.
+ */
+~~~
+
+Mobile parity goal:
+- Flutter map fetch must call RPC with caller_id, user_lat, user_lng.
+- Apply post-filter using identical Haversine formula and cutoff strictly distanceKm > 1 rejected.
+- Never trust only UI filtering; enforce in data layer before rendering and before badge counts.
+
+### 2.3 resolveIsFriend business logic and marker discrimination
+
+Deep analytical explanation:
+- Canonical discriminator priority:
+  1) relation_type == friend => true
+  2) relation_type == stranger => false
+  3) fallback to is_friend flag when present.
+- Marker rendering style is relationship-driven:
+  - Friend marker: gold border/text/glow.
+  - Stranger marker: gray/slate border/text/glow.
+- Friend online badge uses green #22c55e in overlay counter row.
+
+Canonical resolve helper (app/components/map/MapViewInner.tsx):
+~~~ts
+function resolveIsFriend(u: VisibleUser): boolean {
+  if (u.relation_type === 'friend') return true;
+  if (u.relation_type === 'stranger') return false;
+  return u.is_friend === true;
+}
+~~~
+
+Canonical marker style discriminator (app/components/map/MapViewInner.tsx):
+~~~ts
+const borderColor = isFriend ? '#FCD535' : '#4B5563';
+const bgColor     = isFriend ? '#181A20'  : '#111318';
+const textColor   = isFriend ? '#FCD535'  : '#9CA3AF';
+const shadowColor = isFriend ? 'rgba(252,213,53,0.45)' : 'rgba(75,85,99,0.3)';
+~~~
+
+Canonical map counter color (app/components/map/MapViewInner.tsx):
+~~~tsx
+<Circle size={7} style={{ color: '#22c55e', fill: '#22c55e', flexShrink: 0 }} />
+~~~
+
+Canonical filtering for counter groups (app/components/map/MapViewInner.tsx):
+~~~tsx
+<MapControls
+  isGhostMode={isGhostMode}
+  strangerCount={visibleUsers.filter((u) => !resolveIsFriend(u)).length}
+  friendOnlineCount={visibleUsers.filter((u) => resolveIsFriend(u)).length}
+  userCenter={userPos}
+/>
+~~~
+
+Mobile parity goal:
+- Flutter relation resolver must use the exact same priority order.
+- Map marker theme must branch exactly:
+  - Friends: border #FCD535, bg #181A20, text #FCD535, glow rgba(252,213,53,0.45).
+  - Strangers: border #4B5563, bg #111318, text #9CA3AF, glow rgba(75,85,99,0.3).
+- Online friend counter badge must display green dot #22c55e.
+
+### 2.4 Overlay badge counters (online friends and nearby strangers)
+
+Deep analytical explanation:
+- Counter values are not precomputed server-side in map view; they are derived from visibleUsers array after relation resolution.
+- Ghost mode masks counter values to dash symbol.
+
+Canonical snippet (app/components/map/MapViewInner.tsx):
+~~~tsx
+<span className="text-xs font-semibold" style={{ color: '#D1D5DB' }}>
+  {isGhostMode ? '—' : strangerCount} pengguna di sekitar
+</span>
+
+<span className="text-xs font-semibold" style={{ color: '#FCD535' }}>
+  {isGhostMode ? '—' : friendOnlineCount} teman online
+</span>
+~~~
+
+Mobile parity goal:
+- Compute counts in-memory from current visible user set and relation resolver.
+- In ghost mode, render placeholder dash and suppress explicit numbers.
+
+### 2.5 Auth, RLS, and lifecycle boundaries for map APIs
+
+Deep analytical explanation:
+- Mobile API routes require Bearer token and create an authed Supabase client with Authorization header.
+- Runtime therefore relies on Supabase RLS policies for table/RPC access control.
+- Specific policy SQL is not in repository; policy verification must be done in Supabase project.
+
+Canonical snippet (app/api/_lib/mobile-rest.ts):
+~~~ts
+export function createAuthedSupabaseClient(token: string): SupabaseClient {
+  return createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+}
+~~~
+
+Mobile parity goal:
+- All Flutter protected calls must include Bearer token in Authorization header.
+- Do not bypass route auth; avoid anonymous direct table access for protected data.
+
+---
+
+## SECTION 3: Premium Real-Time Chat and Message Pruning
+
+### 3.1 Bubble style discrimination (mine vs peer)
+
+Deep analytical explanation:
+- Alignment and visual style are controlled by message.sent.
+- My message: right aligned, gold bubble with dark text.
+- Peer message: left aligned, surface dark bubble #181A20 with border.
+- Important canonical note: although token --color-gold-dim (#D4AC1A) exists, current chat bubble implementation uses --color-gold (#FCD535), not #D4AC1A.
+- Username is shown in chat header and list metadata, not inside each peer bubble body in current implementation.
+
+Canonical snippet (app/components/chat/ChatPanel.tsx):
+~~~tsx
+className={`flex ${message.sent ? 'justify-end' : 'justify-start'} mb-3`}
+
+style={message.sent
+  ? { background: 'var(--color-gold)', color: '#0B0E11' }
+  : { background: 'var(--color-surface)', color: 'var(--color-primary)', border: '1px solid var(--color-border)' }}
+~~~
+
+Mobile parity goal:
+- Flutter message item must preserve:
+  - My message: right alignment, gold background, dark text.
+  - Peer message: left alignment, surface dark #181A20 with border.
+- If product requires peer username in each bubble, treat as enhancement; current web canonical behavior does not render username per bubble.
+
+### 3.2 Permanent auto-scroll behavior
+
+Deep analytical explanation:
+- Every messages state change triggers smooth scroll to bottomRef.
+- This keeps timeline pinned to latest message for both optimistic local sends and realtime inserts.
+
+Canonical snippet (app/components/chat/ChatPanel.tsx):
+~~~ts
+const bottomRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+}, [messages]);
+~~~
+
+Mobile parity goal:
+- Flutter chat list must auto-scroll to latest message on every append/update event with smooth animation.
+
+### 3.3 Strict pruning rules: 3 hours and max 10 messages
+
+Deep analytical explanation:
+- Pruning is enforced in multiple layers:
+  1) Client load phase: old records filtered out by 3-hour threshold.
+  2) Realtime insert phase: stale inserts ignored if older than threshold.
+  3) In-memory retention cap: every append sliced to last 10 using slice(-MAX_MSG).
+  4) API history route for mobile/global feed: DB gte(cutoff), safety filter, then slice(-10).
+- Repository handoff also states DB trigger deletes messages after 10 or 3 hours; trigger SQL body is not present in codebase here.
+
+Canonical snippets:
+
+Constants and load filter (app/components/chat/ChatPanel.tsx):
+~~~ts
+const MAX_MSG = 10;
+
+const threshold = Date.now() - 3 * 60 * 60 * 1000;
+const filtered = (data as DBMessage[]).filter((m) => new Date(m.created_at).getTime() > threshold);
+~~~
+
+Realtime stale guard and cap (app/components/chat/ChatPanel.tsx):
+~~~ts
+const threshold = Date.now() - 3 * 60 * 60 * 1000;
+if (new Date(m.created_at).getTime() <= threshold) return;
+setMessages((prev) => [...prev, nextMessage].slice(-MAX_MSG));
+~~~
+
+Optimistic append cap (app/components/chat/ChatPanel.tsx):
+~~~ts
+setMessages((prev) => [...prev, opt].slice(-MAX_MSG));
+~~~
+
+Render-time visibility guard (app/components/chat/ChatPanel.tsx):
+~~~ts
+const threshold = Date.now() - 3 * 60 * 60 * 1000;
+const visibleMessages = messages.filter((m) => new Date(m.createdAt).getTime() > threshold);
+~~~
+
+Mobile history route cap and age filter (app/api/chat/history/route.ts):
+~~~ts
+const cutoffIso = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+
+const { data } = await auth.supabase
+  .from('messages')
+  .select('id, sender_id, content, created_at')
+  .gte('created_at', cutoffIso)
+  .order('created_at', { ascending: true });
+
+const recentMessages = ((data ?? []) as GlobalChatMessageRow[])
+  .filter((message) => isMessageWithinThreeHours(message.created_at))
+  .slice(-10);
+~~~
+
+Shared utility (app/api/_lib/mobile-rest.ts):
+~~~ts
+export function isMessageWithinThreeHours(createdAt: string): boolean {
+  return new Date(createdAt).getTime() > Date.now() - 3 * 60 * 60 * 1000;
+}
+~~~
+
+Mobile parity goal:
+- Flutter must enforce all 4 layers:
+  - Fetch cutoff at now - 3h.
+  - Realtime ignore when message age exceeds 3h.
+  - Keep in-memory list always truncated to last 10.
+  - Apply final render-time age filter as defense-in-depth.
+- If backend trigger exists, keep client filters anyway to prevent stale render race conditions.
+
+### 3.4 Realtime transport and optimistic send
+
+Deep analytical explanation:
+- Channel key is deterministic from sorted user ids.
+- Incoming stream listens INSERT on messages filtered by receiver_id=current user.
+- Outgoing sends are optimistic and can rollback if insert fails.
+
+Canonical snippets (app/components/chat/ChatPanel.tsx):
+~~~ts
+const ch = supabase
+  .channel(`chat-${[currentUserId, friend.id].sort().join('-')}`)
+  .on('postgres_changes',
+    { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${currentUserId}` },
+    (payload) => { ... }
+  )
+  .subscribe();
+~~~
+
+~~~ts
+const opt: UIMessage = { id: `opt-${Date.now()}`, text, sent: true, time: fmtTime(now), createdAt: now };
+setMessages((prev) => [...prev, opt].slice(-MAX_MSG));
+const { error } = await supabase.from('messages').insert({ sender_id: currentUserId, receiver_id: friend.id, content: text });
+if (error) setMessages((prev) => prev.filter((m) => m.id !== opt.id));
+~~~
+
+Mobile parity goal:
+- Use realtime subscription scoped per conversation pair and preserve optimistic send with rollback.
+- Ensure optimistic insertion also obeys 10-message cap.
+
+---
+
+## SECTION 4: Interactive Social Features (QR, Links, Audio)
+
+### 4.1 Profile QR and shareable links
+
+Deep analytical explanation:
+- Profile URL is generated client-side from runtime origin + user id, ensuring environment-agnostic links.
+- QR image is generated via qrserver API using encoded profile URL.
+- Deep-link route app/u/[id]/page.tsx dispatches user by auth state:
+  - unauthenticated -> /login?next=/u/[id]
+  - authenticated -> /?addFriend=[id]
+- Copy button writes URL to clipboard with user feedback toast.
+
+Canonical snippets (app/components/profile/ProfileModal.tsx):
+~~~ts
+const profileUrl = mounted && userId
+  ? `${window.location.origin}/u/${userId}`
+  : null;
+const qrData = profileUrl ?? (mounted ? window.location.origin : 'https://zmayy.com');
+const qrUrl  = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrData)}&bgcolor=FFFFFF&color=0B0E11&margin=4`;
+~~~
+
+~~~ts
+await navigator.clipboard.writeText(url);
+~~~
+
+Canonical deep-link router (app/u/[id]/page.tsx):
+~~~ts
+supabase.auth.getUser().then(({ data: { user } }) => {
+  if (!user) {
+    router.replace(`/login?next=/u/${id}`);
+  } else {
+    router.replace(`/?addFriend=${id}`);
+  }
+});
+~~~
+
+Mobile parity goal:
+- Flutter must generate canonical profile links in form /u/{userId} based on deployed base URL.
+- QR rendering should encode the exact share URL and preserve dark-on-light code colors.
+- Incoming deep links must route through auth gate exactly like web behavior.
+
+### 4.2 NFC/Web Share fallback chain
+
+Deep analytical explanation:
+- Share flow tries Web NFC first, then navigator.share, then clipboard fallback.
+- Failure path still attempts clipboard fallback before final error toast.
+
+Canonical snippet (app/components/profile/ProfileModal.tsx):
+~~~ts
+if (typeof window !== 'undefined' && 'NDEFReader' in window && (window as NFCWindow).NDEFReader) {
+  const reader = new (window as NFCWindow).NDEFReader!();
+  await reader.write(targetUrl);
+  return;
+}
+
+if (navigator.share) {
+  await navigator.share({ title: 'Profil Zmayy', text: `Lihat profil ${displayName}`, url: targetUrl });
+  return;
+}
+
+await navigator.clipboard.writeText(targetUrl);
+~~~
+
+Mobile parity goal:
+- Flutter native share pipeline should preserve same fallback priority intent:
+  1) NFC write (if available)
+  2) native share sheet
+  3) clipboard fallback
+- Always emit user-visible status for each branch.
+
+### 4.3 Audio cues and UI sound effects
+
+Deep analytical explanation:
+- useSound hook synthesizes sounds with Web Audio API (no external asset files).
+- Sound types:
+  - pop: descending sine blip
+  - send: ascending quick whoosh
+  - toggle: dual short pops
+- Sound is cosmetic and safely no-op on failure.
+- Sound setting path:
+  - Profile notify_sound stored in profiles.
+  - Home passes soundEnabled={profile?.notify_sound ?? true} into ChatPanel.
+  - ChatPanel only plays send sound when soundEnabled is true.
+
+Canonical snippets:
+
+Sound generator (app/hooks/useSound.ts):
+~~~ts
+type SoundType = 'pop' | 'send' | 'toggle';
+
+if (type === 'send') {
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(400, now);
+  osc.frequency.exponentialRampToValueAtTime(900, now + 0.12);
+  gain.gain.setValueAtTime(0.12, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+}
+~~~
+
+Chat send usage (app/components/chat/ChatPanel.tsx):
+~~~ts
+if (soundEnabled) play('send');
+~~~
+
+Toggle usage in profile (app/components/profile/ProfileModal.tsx):
+~~~ts
+play('toggle');
+~~~
+
+Sound toggle source (app/components/profile/NotificationsSettingsModal.tsx):
+~~~ts
+handleToggle('notify_sound', next, setNotifySound, 'notify_sound', ...)
+~~~
+
+Mobile parity goal:
+- Implement procedural or asset-based equivalents for send/toggle cues.
+- Enforce notify_sound gate globally for chat and interaction sound playback.
+- Audio failure must never block functional flow.
+
+---
+
+## SECTION 5: Settings and Session Lifecycle
+
+### 5.1 Settings view architecture and state model
+
+Deep analytical explanation:
+- Settings are centered in ProfileModal with nested modals for notifications and privacy.
+- Notification settings are instant-save (no explicit save button): notify_global, notify_requests, notify_messages, notify_sound.
+- Privacy settings instant-save is_public and includes multi-step account deletion flow.
+- Ghost mode toggle updates is_ghost_mode and may wipe coordinates.
+
+Canonical snippets:
+
+Notifications instant save (app/components/profile/NotificationsSettingsModal.tsx):
+~~~ts
+const { error } = await supabase
+  .from('profiles')
+  .update({ [key]: next })
+  .eq('id', profile.id);
+~~~
+
+Privacy public toggle (app/components/profile/PrivacySettingsModal.tsx):
+~~~ts
+const { error } = await supabase
+  .from('profiles')
+  .update({ is_public: next })
+  .eq('id', profile.id);
+~~~
+
+Ghost mode update and coordinate wipe (app/components/profile/ProfileModal.tsx):
+~~~ts
+const updatePayload: Record<string, unknown> = { is_ghost_mode: next };
+if (next) {
+  updatePayload.last_lat = null;
+  updatePayload.last_lng = null;
+}
+~~~
+
+Mobile parity goal:
+- Flutter settings must be instant-save with optimistic UI + rollback on error.
+- Preserve exact profile columns and side effects (especially notify_sound and ghost wipe).
+
+### 5.2 Secure logout lifecycle and local cleanup
+
+Deep analytical explanation:
+- Logout action in ProfileModal is sequenced deliberately:
+  1) supabase.auth.signOut() to clear auth cookie/JWT.
+  2) onLogout callback clears in-memory dashboard state.
+  3) short delay to allow browser cookie propagation.
+  4) router.refresh() to invalidate server session-dependent state.
+  5) router.replace('/login').
+- Home page onLogout callback clears user/profile/panel local state.
+- Proxy enforces route guarding and session refresh on each request.
+
+Canonical snippets:
+
+Profile logout flow (app/components/profile/ProfileModal.tsx):
+~~~ts
+await supabase.auth.signOut();
+onLogout();
+await new Promise(resolve => setTimeout(resolve, 150));
+router.refresh();
+router.replace('/login');
+~~~
+
+Home local cleanup (app/page.tsx):
+~~~ts
+const handleLogout = useCallback(async () => {
+  setUser(null);
+  setProfile(null);
+  setActivePanel('none');
+}, []);
+~~~
+
+Session guard proxy (proxy.ts):
+~~~ts
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user && !isLoginPage) {
+  loginUrl.pathname = '/login';
+  return NextResponse.redirect(loginUrl);
+}
+
+if (user && isLoginPage) {
+  homeUrl.pathname = '/';
+  return NextResponse.redirect(homeUrl);
+}
+~~~
+
+Mobile parity goal:
+- Flutter logout must clear secure auth tokens, in-memory user/profile state, and navigation stack back to login.
+- After logout, protected screens must be inaccessible unless session is recreated.
+- On app resume/restart, session verification endpoint should be called before unlocking protected UI.
+
+### 5.3 Mobile session validation endpoint contract
+
+Deep analytical explanation:
+- app/api/auth/mobile-session validates bearer token, loads or creates normalized profile, and returns access_token + user + profile payload.
+- This endpoint acts as server-authoritative session rehydration contract for mobile.
+
+Canonical snippet (app/api/auth/mobile-session/route.ts):
+~~~ts
+const auth = await authenticateMobileRequest(request);
+
+const { data: profileRow } = await auth.supabase
+  .from('profiles')
+  .select('*')
+  .eq('id', auth.user.id)
+  .maybeSingle();
+
+return jsonResponse(request, {
+  access_token: auth.token,
+  user: auth.user,
+  profile,
+});
+~~~
+
+Mobile parity goal:
+- Flutter cold-start must call this endpoint with bearer token.
+- App state should be built from returned normalized profile defaults, not ad-hoc local assumptions.
+
+---
+
+## Appendices
+
+### A. Canonical Discrepancy Notes
+
+1. Chat accent token:
+- Token #D4AC1A exists as --color-gold-dim in global CSS.
+- Chat bubbles currently use --color-gold (#FCD535).
+
+2. Peer username in bubble:
+- Current one-to-one chat bubble body does not render sender username per message.
+- Username appears in header/list metadata and mobile history payload includes sender_profile.
+
+3. SQL/RLS definitions:
+- Exact SQL migration for get_visible_users and RLS policies are not in this repository.
+- Runtime contracts and comments indicate expected behavior; production Supabase project must remain aligned.
+
+### B. Non-negotiable Flutter Parity Checklist
+
+1. Theme fidelity:
+- Base #0B0E11, surface #181A20, gold family, glass blur and border alpha preserved.
+
+2. Spatial fidelity:
+- Continuous GPS sync, ghost wipe, strict <= 1 km filter, friend/stranger marker discrimination.
+
+3. Chat fidelity:
+- Realtime insert + optimistic send + auto-scroll + 3h and 10-message pruning in all layers.
+
+4. Social fidelity:
+- Runtime share URL generation, QR encoding, deep-link auth gate behavior, NFC/share/clipboard fallback chain.
+
+5. Session/security fidelity:
+- Token-authenticated APIs, strict logout sequence, startup session validation, route guarding behavior.
+
+End of Zmayy Master Specification.
