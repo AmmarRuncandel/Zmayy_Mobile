@@ -5,6 +5,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/app_state.dart';
 import '../../core/secure_storage.dart';
+import '../../core/biometric_helper.dart';
+import '../../core/biometric_storage.dart';
+import '../../core/elegant_dialog.dart';
 import '../../data/models/user_profile.dart';
 import '../auth/login_screen.dart';
 
@@ -137,24 +140,18 @@ class _ProfilePanelState extends State<ProfilePanel> {
           onTap: profile == null
               ? null
               : () async {
-                  final controller = TextEditingController(text: profile.displayName ?? profile.username);
                   // Capture appState before awaiting dialog to avoid using BuildContext across async gaps
                   final appState = Provider.of<ZmayyAppState>(context, listen: false);
 
-                  final result = await showDialog<String?>(
+                  final result = await ElegantDialog.showInput(
                     context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Ubah Nama'),
-                      content: TextField(
-                        controller: controller,
-                        decoration: const InputDecoration(hintText: 'Nama tampil'),
-                      ),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Batal')),
-                        ElevatedButton(onPressed: () => Navigator.of(ctx).pop(controller.text.trim()), child: const Text('Simpan')),
-                      ],
-                    ),
+                    title: 'Ubah Nama',
+                    hint: 'Nama tampil',
+                    initialValue: profile.displayName ?? profile.username,
+                    confirmText: 'Simpan',
+                    cancelText: 'Batal',
                   );
+
                   if (result != null && result.isNotEmpty) {
                     // CELAH LOGIKA KRITIS #2: Defensif Payload Sinkronisasi Profil
                     // Kirim payload ganda untuk kompatibilitas dengan skema Supabase
@@ -530,27 +527,55 @@ class _ProfilePanelState extends State<ProfilePanel> {
             return Dialog(
               backgroundColor: const Color(0xFF181A20),
               insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Notifikasi',
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
-                        ),
-                      ],
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: Color(0xFF2B2F36), width: 1),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33FCD535),
+                      blurRadius: 24,
+                      spreadRadius: 2,
                     ),
+                    BoxShadow(
+                      color: Color(0x66000000),
+                      blurRadius: 32,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Notifikasi',
+                              style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => Navigator.of(dialogContext).pop(),
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF12151B),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF2B2F36)),
+                              ),
+                              child: const Icon(Icons.close, color: Color(0xFF848E9C), size: 18),
+                            ),
+                          ),
+                        ],
+                      ),
                     const Divider(color: Color(0xFF2B2F36), height: 1),
                     const SizedBox(height: 12),
                     _dialogToggle(
@@ -626,11 +651,12 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
+            ),
+          );
+        },
+      );
+    },
+  );
 
     if (result != null && mounted) {
       setState(() {});
@@ -655,27 +681,55 @@ class _ProfilePanelState extends State<ProfilePanel> {
             return Dialog(
               backgroundColor: const Color(0xFF181A20),
               insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Privasi & Keamanan',
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
-                        ),
-                      ],
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: Color(0xFF2B2F36), width: 1),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33FCD535),
+                      blurRadius: 24,
+                      spreadRadius: 2,
                     ),
+                    BoxShadow(
+                      color: Color(0x66000000),
+                      blurRadius: 32,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Privasi & Keamanan',
+                              style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => Navigator.of(dialogContext).pop(),
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF12151B),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF2B2F36)),
+                              ),
+                              child: const Icon(Icons.close, color: Color(0xFF848E9C), size: 18),
+                            ),
+                          ),
+                        ],
+                      ),
                     const Divider(color: Color(0xFF2B2F36), height: 1),
                     const SizedBox(height: 12),
                     const Text('VISIBILITAS', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
@@ -687,6 +741,55 @@ class _ProfilePanelState extends State<ProfilePanel> {
                       onChanged: (value) async {
                         setModalState(() => isPublic = value);
                         await appState.updateProfileField(profile.copyWith(isPublic: value));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('KEAMANAN', style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    FutureBuilder<bool>(
+                      future: BiometricStorage.isBiometricChatEnabled(),
+                      builder: (context, snapshot) {
+                        final biometricEnabled = snapshot.data ?? false;
+                        return _dialogToggle(
+                          title: 'Proteksi Sidik Jari untuk Obrolan',
+                          subtitle: 'Wajibkan autentikasi biometrik saat membuka obrolan',
+                          value: biometricEnabled,
+                          onChanged: (value) async {
+                            if (value) {
+                              // Check if device supports biometric
+                              final isSupported = await BiometricHelper.isDeviceSupported();
+                              if (!isSupported) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Perangkat tidak mendukung autentikasi biometrik')),
+                                );
+                                return;
+                              }
+                              // Test biometric authentication
+                              final authenticated = await BiometricHelper.authenticate();
+                              if (authenticated) {
+                                await BiometricStorage.enableBiometricChat();
+                                setModalState(() {});
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Proteksi sidik jari diaktifkan')),
+                                );
+                              } else {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Autentikasi gagal')),
+                                );
+                              }
+                            } else {
+                              await BiometricStorage.disableBiometricChat();
+                              setModalState(() {});
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Proteksi sidik jari dinonaktifkan')),
+                              );
+                            }
+                          },
+                        );
                       },
                     ),
                     const SizedBox(height: 12),
@@ -795,11 +898,12 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
+            ),
+          );
+        },
+      );
+    },
+  );
   }
 
   Widget _dialogToggle({
@@ -847,15 +951,29 @@ class _ProfilePanelState extends State<ProfilePanel> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF181A20),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: const Color(0xFF181A20),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: const Border(
+            top: BorderSide(color: Color(0xFF2B2F36), width: 1),
+            left: BorderSide(color: Color(0xFF2B2F36), width: 1),
+            right: BorderSide(color: Color(0xFF2B2F36), width: 1),
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33FCD535),
+              blurRadius: 24,
+              spreadRadius: 2,
+            ),
+          ],
         ),
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Handle bar
             Container(
               width: 40,
               height: 4,
@@ -865,35 +983,44 @@ class _ProfilePanelState extends State<ProfilePanel> {
               ),
             ),
             const SizedBox(height: 24),
+            // Icon
             Container(
               width: 80,
               height: 80,
               decoration: BoxDecoration(
                 color: const Color(0xFFFCD535).withValues(alpha: 0.15),
                 shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFFCD535).withValues(alpha: 0.3),
+                  width: 2,
+                ),
               ),
               child: const Icon(Icons.nfc, color: Color(0xFFFCD535), size: 40),
             ),
             const SizedBox(height: 20),
+            // Title
             const Text(
               'Fitur NFC Aktif',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
               ),
             ),
             const SizedBox(height: 12),
+            // Description
             const Text(
               'Tempelkan bagian belakang ponsel ke perangkat Zmayy lain untuk mentransfer profil.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xFF848E9C),
+                color: Color(0xFF9CA3AF),
                 fontSize: 14,
                 height: 1.5,
               ),
             ),
             const SizedBox(height: 24),
+            // Animated pulse
             TweenAnimationBuilder<double>(
               tween: Tween(begin: 0.8, end: 1.2),
               duration: const Duration(milliseconds: 1200),
@@ -988,8 +1115,27 @@ class _ProfilePanelState extends State<ProfilePanel> {
         return Dialog(
           backgroundColor: const Color(0xFF181A20),
           insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          child: Padding(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFF2B2F36), width: 1),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33FCD535),
+                  blurRadius: 24,
+                  spreadRadius: 2,
+                ),
+                BoxShadow(
+                  color: Color(0x66000000),
+                  blurRadius: 32,
+                  offset: Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1000,12 +1146,21 @@ class _ProfilePanelState extends State<ProfilePanel> {
                     const Expanded(
                       child: Text(
                         'Berbagi Lokasi',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                        style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.3),
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
+                    GestureDetector(
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF12151B),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF2B2F36)),
+                        ),
+                        child: const Icon(Icons.close, color: Color(0xFF848E9C), size: 18),
+                      ),
                     ),
                   ],
                 ),
@@ -1064,9 +1219,10 @@ class _ProfilePanelState extends State<ProfilePanel> {
               ],
             ),
           ),
-        );
-      },
-    );
+        ),
+      );
+    },
+  );
   }
 
   Widget _infoRow(IconData icon, String title, String value) {
