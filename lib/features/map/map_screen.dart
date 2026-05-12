@@ -56,8 +56,9 @@ class MapScreenState extends State<MapScreen> {
       await appState.fetchNearbyUsers(pos.latitude, pos.longitude);
 
       // Tell backend we're enabling map sharing for this session
+      // ENDPOINT MUTLAK: POST /api/map/update-location
       try {
-        await mapRepo.enableMap(pos.latitude, pos.longitude);
+        await mapRepo.updateLocation(pos.latitude, pos.longitude);
       } catch (_) {}
     } catch (err) {
       if (mounted) {
@@ -103,7 +104,8 @@ class MapScreenState extends State<MapScreen> {
               MarkerLayer(
                 markers: appState.visibleUsers
                     .where((u) => u.lastLat != null && u.lastLng != null)
-                    .map((u) => _buildMarker(u))
+                    .where((u) => u.id != appState.currentUserId) // FILTER: Kecualikan self-marker
+                    .map((u) => _buildMarker(u, appState.currentUserId))
                     .toList(),
               ),
             ],
@@ -141,7 +143,11 @@ class MapScreenState extends State<MapScreen> {
   }
 
   // ── Marker builder ─────────────────────────────────────────────────────────
-  Marker _buildMarker(VisibleUser user) {
+  Marker _buildMarker(VisibleUser user, String? currentUserId) {
+    // CELAH LOGIKA KRITIS #1: Filter penanda mandiri (self-marker)
+    // Marker dengan id == currentUserId sudah difilter di MarkerLayer.
+    // Jika lolos filter, berarti ini bukan self-marker.
+    
     // LOGIKA VISUAL KETAT: Gunakan relation_type dari backend
     // relation_type == 'friend' → Ikon Emas
     // relation_type == 'stranger' → Ikon Hitam

@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import '../../core/api_client.dart';
 
 class ProfileRepository {
@@ -8,7 +10,12 @@ class ProfileRepository {
   /// Updates profile fields on the server. Returns the updated profile map.
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> payload) async {
     final sanitizedPayload = _sanitizePayload(payload);
-    final resp = await _client.patch('/api/auth/profile', sanitizedPayload);
+    
+    // LOGGING KRUSIAL: Log payload yang akan dikirim
+    developer.log('[Profile Update] Payload terkirim: $sanitizedPayload', level: 800);
+    
+    // ENDPOINT MUTLAK: /api/profile/update (PATCH atau POST)
+    final resp = await _client.patch('/api/profile/update', sanitizedPayload);
     if (resp == null) return <String, dynamic>{};
 
     final map = _unwrapStandardJson(resp);

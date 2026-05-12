@@ -7,6 +7,126 @@ Menyempurnakan rantai komunikasi Flutter ke REST API Vercel dengan sistem Consol
 
 ---
 
+## 🔥 ENDPOINT AUDIT & ALIGNMENT (Latest Update)
+
+### 🚨 Critical Issue Found:
+**ENDPOINT MISMATCH FATAL** - Jalur rute di Flutter tidak cocok dengan struktur REST API Next.js, menyebabkan HTML 404 atau 500 error pada:
+- ❌ Panel Teman (ApiException 500)
+- ❌ Panel Permintaan (ApiException 500)
+- ❌ Panel Obrolan (kosong)
+- ❌ Peta (0 pengguna di sekitar)
+
+### ✅ Fixes Applied:
+
+#### Fix #1: ProfileRepository Endpoint
+**File:** `lib/data/repositories/profile_repository.dart`
+
+**SEBELUM:**
+```dart
+// ❌ SALAH - Endpoint tidak ada
+await _client.patch('/api/auth/profile', payload);
+```
+
+**SESUDAH:**
+```dart
+// ✅ BENAR - Sesuai Next.js
+await _client.patch('/api/profile/update', payload);
+```
+
+#### Fix #2: MapRepository Update Location Endpoint
+**File:** `lib/data/repositories/map_repository.dart`
+
+**SEBELUM:**
+```dart
+// ❌ SALAH - POST ke endpoint GET
+await _client.post('/api/map/visible', {lat, lng});
+```
+
+**SESUDAH:**
+```dart
+// ✅ BENAR - Endpoint khusus update lokasi
+await _client.post('/api/map/update-location', {lat, lng});
+```
+
+#### Fix #3: Enhanced Defensive JSON Decoding
+**Files:** All repositories
+
+**Added:**
+- ✅ Handles wrapped JSON: `{"data": [...]}`
+- ✅ Handles unwrapped JSON: `[...]`
+- ✅ Handles null responses gracefully
+- ✅ No type errors or crashes
+
+#### Fix #4: Comprehensive Logging
+**Files:** `friends_repository.dart`, `chat_repository.dart`, `map_repository.dart`
+
+**Added:**
+```dart
+[Friends Sync] Ditemukan X teman
+[Friend Requests Sync] Ditemukan X permintaan
+[Friend Request] Accepting request from: ...
+[Chat Sync] Ditemukan X pesan
+[Chat Send] Mengirim pesan: ...
+[DM Sync] Ditemukan X pesan dengan friend: ...
+[Map Update] Updating location: lat=..., lng=...
+```
+
+### 📊 Endpoint Verification Table:
+
+| Repository | Endpoint | Status |
+|------------|----------|--------|
+| AuthRepository | `/api/auth/mobile-session` | ✅ BENAR |
+| ProfileRepository | `/api/profile/update` | ⚠️ **DIPERBAIKI** |
+| FriendsRepository | `/api/friends` | ✅ BENAR |
+| FriendsRepository | `/api/friends/requests` | ✅ BENAR |
+| FriendsRepository | `/api/friends/accept` | ✅ BENAR |
+| MapRepository | `/api/map/visible` | ✅ BENAR |
+| MapRepository | `/api/map/update-location` | ⚠️ **DIPERBAIKI** |
+| ChatRepository | `/api/chat/history` | ✅ BENAR |
+| ChatRepository | `/api/chat/send` | ✅ BENAR |
+
+---
+
+## 🔥 CRITICAL FIXES (Added Earlier)
+
+### Fix #1: Filter Penanda Mandiri di Peta
+**File:** `lib/features/map/map_screen.dart`
+
+**Masalah:** Self-marker muncul di peta bersama marker pengguna lain, menyebabkan kebingungan.
+
+**Solusi:**
+- ✅ Filter entitas dengan `id == currentUserId` sebelum render marker
+- ✅ Hanya tampilkan marker teman (emas) dan stranger (hitam)
+- ✅ Self-marker tidak lagi muncul di peta
+
+**Log:**
+```
+[Map Sync] Ditemukan 5 entitas di sekitar koordinat saat ini
+// Di peta hanya muncul 4 marker (1 self-marker difilter)
+```
+
+---
+
+### Fix #2: Defensif Payload Sinkronisasi Profil
+**Files:** 
+- `lib/features/profile/profile_panel.dart`
+- `lib/data/repositories/profile_repository.dart`
+
+**Masalah:** Update nama hanya mengirim `display_name`, bisa gagal validasi Supabase.
+
+**Solusi:**
+- ✅ Kirim payload ganda: `{'username': newName, 'display_name': newName}`
+- ✅ Kompatibel dengan validasi backend Supabase
+- ✅ Log payload di konsol: `[Profile Update] Payload terkirim: ...`
+
+**Log:**
+```
+[Profile Update] Payload terkirim: {username: John Doe, display_name: John Doe, id: ...}
+[API Request] PATCH /api/auth/profile | Token Attached: true
+```
+
+---
+
 ## ✅ Perubahan yang Diimplementasikan
 
 ### 1. **Penguncian Header Universal & Network Logging (ApiClient)**

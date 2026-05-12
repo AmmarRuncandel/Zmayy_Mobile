@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
-
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
@@ -28,6 +28,14 @@ class ApiClient {
     return base.resolve(resolvedPath);
   }
 
+  void _xrayLog(String message) {
+    if (kDebugMode) {
+      // Menyuntikkan pengecualian linter agar print() murni bisa menembus terminal
+      // ignore: avoid_print
+      print(message);
+    }
+  }
+
   Future<dynamic> get(String path) async {
     final url = _buildUri(path);
     final token = await SecureStorage.readToken();
@@ -37,12 +45,8 @@ class ApiClient {
       ..followRedirects = false
       ..headers.addAll(_headers(token));
 
-    if (hasToken) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-
-    // LOGGING KRUSIAL: Log request dengan status token
     developer.log('[API Request] GET $url | Token Attached: $hasToken', level: 800);
+    _xrayLog('► GET REQUEST TO: ${url.path}');
 
     final response = await _send(request);
     return _processResponse(response);
@@ -58,12 +62,8 @@ class ApiClient {
       ..headers.addAll(_headers(token))
       ..body = jsonEncode(body);
 
-    if (hasToken) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-
-    // LOGGING KRUSIAL: Log request dengan status token
     developer.log('[API Request] POST $url | Token Attached: $hasToken', level: 800);
+    _xrayLog('► POST REQUEST TO: ${url.path} | PAYLOAD: ${request.body}');
 
     final response = await _send(request);
     return _processResponse(response);
@@ -79,12 +79,8 @@ class ApiClient {
       ..headers.addAll(_headers(token))
       ..body = jsonEncode(body);
 
-    if (hasToken) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-
-    // LOGGING KRUSIAL: Log request dengan status token
     developer.log('[API Request] PATCH $url | Token Attached: $hasToken', level: 800);
+    _xrayLog('► PATCH REQUEST TO: ${url.path} | PAYLOAD: ${request.body}');
 
     final response = await _send(request);
     return _processResponse(response);
@@ -103,8 +99,8 @@ class ApiClient {
       final streamed = await _inner.send(request).timeout(
         _requestTimeout,
         onTimeout: () {
-          // LOGGING KRUSIAL: Timeout error
-          developer.log('[API Error] ${request.url} | Status: TIMEOUT | Muatan: Request timeout after ${_requestTimeout.inSeconds}s', level: 1000);
+          developer.log('[API Error] ${request.url} | Status: TIMEOUT', level: 1000);
+          _xrayLog('◄ TIMEOUT ERROR FOR: ${request.url.path}');
           throw TimeoutException('Request timeout after ${_requestTimeout.inSeconds}s', _requestTimeout);
         },
       );
@@ -112,15 +108,11 @@ class ApiClient {
       
       final status = response.statusCode;
       
-      // LOGGING KRUSIAL: Log error untuk respons non-200
-      if (status < 200 || status > 201) {
+      if (status < 200 || status >= 300) {
         final bodyPreview = response.body.isEmpty ? '<empty>' : (response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body);
         developer.log('[API Error] ${request.url} | Status: $status | Muatan: $bodyPreview', level: 1000);
       }
 
-      // Do not auto-follow redirects for API calls. A redirect often indicates the backend
-      // is applying web middleware (e.g. redirecting unauthenticated traffic to /login),
-      // which breaks mobile auth flows and can surface as a confusing 405 later.
       if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) &&
           response.headers['location'] != null) {
         final locationRaw = response.headers['location']!;
@@ -130,8 +122,8 @@ class ApiClient {
             : (location.isAbsolute ? location.toString() : request.url.resolveUri(location).toString());
         final snippet = response.body.trim().isEmpty ? '<empty body>' : response.body.trim();
         
-        // LOGGING KRUSIAL: Redirect error
-        developer.log('[API Error] ${request.url} | Status: $status (REDIRECT) | Muatan: Redirecting to $resolved', level: 1000);
+        developer.log('[API Error] ${request.url} | Status: $status (REDIRECT)', level: 1000);
+        _xrayLog('◄ REDIRECT TRAP AT: ${request.url.path} → $resolved');
         
         throw ApiException(
           status,
@@ -143,9 +135,9 @@ class ApiClient {
 
       return response;
     } catch (e) {
-      // LOGGING KRUSIAL: Network error
       if (e is! ApiException && e is! TimeoutException) {
         developer.log('[API Error] ${request.url} | Status: NETWORK_ERROR | Muatan: $e', level: 1000);
+        _xrayLog('◄ NETWORK/SYSTEM ERROR: $e');
       }
       rethrow;
     }
@@ -155,12 +147,17 @@ class ApiClient {
     final status = resp.statusCode;
     final body = resp.body;
     final contentType = resp.headers['content-type'] ?? '';
+    final requestUrl = resp.request?.url.toString() ?? 'unknown';
+
+    // =========================================================================
+    // 🔍 X-RAY LOGGING MUTLAK (Menggunakan standar developer.log yang sah)
+    // =========================================================================
+    final requestPath = resp.request?.url.path ?? 'unknown';
+    _xrayLog('◄ RESPONSE FROM: $requestPath\n  ├─ HTTP STATUS : $status\n  ├─ CONTENT TYPE: $contentType\n  └─ RAW BODY    : $body');
+    // =========================================================================
 
     if (status == 401) {
-      // LOGGING KRUSIAL: Unauthorized - force logout
-      developer.log('[API Error] ${resp.request?.url} | Status: 401 UNAUTHORIZED | Muatan: Session expired, redirecting to login', level: 1000);
-      
-      // Force a logout + navigate to login (session expired)
+      developer.log('[API Error] $requestUrl | Status: 401 UNAUTHORIZED', level: 1000);
       try {
         await SecureStorage.clearAll();
         AppNavigator.goToLogin();
@@ -168,31 +165,28 @@ class ApiClient {
       throw ApiException(status, 'Unauthorized');
     }
 
-    if (status != 200 && status != 201) {
+    if (status < 200 || status >= 300) {
       final location = resp.headers['location'];
       final extra = location == null ? '' : ' Location: $location';
       throw ApiException(status, '${_messageFromResponse(status, body, contentType)}$extra');
     }
 
     if (!contentType.toLowerCase().contains('application/json')) {
-      // LOGGING KRUSIAL: Non-JSON response
-      developer.log('[API Error] ${resp.request?.url} | Status: $status | Muatan: Expected JSON but got $contentType', level: 1000);
-      throw ApiException(status, 'Expected JSON response from ${resp.request?.url}. Raw body: $body');
+      developer.log('[API Error] $requestUrl | Status: $status | Muatan: Expected JSON but got $contentType', level: 1000);
+      throw ApiException(status, 'Expected JSON response from $requestUrl. Raw body: $body');
     }
 
     try {
       return body.isEmpty ? null : jsonDecode(body);
     } on FormatException catch (error) {
-      // LOGGING KRUSIAL: JSON parsing error
-      developer.log('[API Error] ${resp.request?.url} | Status: $status | Muatan: Invalid JSON - ${error.message}', level: 1000);
-      throw ApiException(status, 'Invalid JSON response from ${resp.request?.url}. Raw body: $body (${error.message})');
+      developer.log('[API Error] $requestUrl | Status: $status | Muatan: Invalid JSON - ${error.message}', level: 1000);
+      throw ApiException(status, 'Invalid JSON response from $requestUrl. Raw body: $body (${error.message})');
     }
   }
 
   String _messageFromResponse(int status, String body, String contentType) {
     final trimmedBody = body.trim();
     
-    // Provide helpful message for common HTTP errors
     String statusMessage;
     if (status == 405) {
       statusMessage = 'The API endpoint does not support this request method. This usually means the backend endpoint is not properly configured.';

@@ -157,7 +157,12 @@ class _ProfilePanelState extends State<ProfilePanel> {
                     ),
                   );
                   if (result != null && result.isNotEmpty) {
-                    final updated = profile.copyWith(displayName: result);
+                    // CELAH LOGIKA KRITIS #2: Defensif Payload Sinkronisasi Profil
+                    // Kirim payload ganda untuk kompatibilitas dengan skema Supabase
+                    final updated = profile.copyWith(
+                      username: result,      // Update username (field bawaan Supabase)
+                      displayName: result,   // Update display_name (field custom)
+                    );
                     await appState.updateProfileField(updated);
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama berhasil diperbarui'), behavior: SnackBarBehavior.floating));
