@@ -63,7 +63,7 @@ AUTENTIKASI:
 
 PETA:
 - GET  /api/map/visible?lat=X&lng=Y (ambil user terdekat)
-- POST /api/map/enable (aktifkan sharing lokasi)
+- POST /api/map/visible (aktifkan sharing lokasi)
 
 CHAT:
 - GET  /api/chat/history (global chat history)
@@ -293,7 +293,7 @@ PROSES:
 
 ⚠️ PENTING: RPC get_visible_users() bergantung pada RLS Supabase
 
-FILE: app/api/map/enable/route.ts
+FILE: app/api/map/visible/route.ts
 PROSES:
 1. Terima lat, lng dari body
 2. Update profiles.last_lat, last_lng, updated_at

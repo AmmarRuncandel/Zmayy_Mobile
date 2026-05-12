@@ -108,7 +108,7 @@ FILE: lib/data/repositories/map_repository.dart
 
 ENDPOINT YANG DIGUNAKAN:
 - GET /api/map/visible?lat=X&lng=Y
-- POST /api/map/enable
+- POST /api/map/visible
 
 LIBRARY: flutter_map, geolocator
 
@@ -334,7 +334,7 @@ AUTENTIKASI:
 
 PETA:
 ✅ GET /api/map/visible?lat=X&lng=Y
-✅ POST /api/map/enable
+✅ POST /api/map/visible
 
 CHAT:
 ✅ GET /api/chat/history
@@ -361,7 +361,7 @@ AUTENTIKASI:
 
 PETA:
 ✅ GET /api/map/visible?lat=X&lng=Y
-✅ POST /api/map/enable
+✅ POST /api/map/visible
 
 CHAT:
 ✅ GET /api/chat/history

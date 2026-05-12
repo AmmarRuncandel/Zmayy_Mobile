@@ -31,13 +31,18 @@ class ApiClient {
   Future<dynamic> get(String path) async {
     final url = _buildUri(path);
     final token = await SecureStorage.readToken();
+    final hasToken = token != null && token.isNotEmpty;
+    
     final request = http.Request('GET', url)
       ..followRedirects = false
       ..headers.addAll(_headers(token));
 
-    if (token != null) {
+    if (hasToken) {
       request.headers['Authorization'] = 'Bearer $token';
     }
+
+    // LOGGING KRUSIAL: Log request dengan status token
+    developer.log('[API Request] GET $url | Token Attached: $hasToken', level: 800);
 
     final response = await _send(request);
     return _processResponse(response);
@@ -46,14 +51,19 @@ class ApiClient {
   Future<dynamic> post(String path, Map<String, dynamic> body) async {
     final url = _buildUri(path);
     final token = await SecureStorage.readToken();
+    final hasToken = token != null && token.isNotEmpty;
+    
     final request = http.Request('POST', url)
       ..followRedirects = false
       ..headers.addAll(_headers(token))
       ..body = jsonEncode(body);
 
-    if (token != null) {
+    if (hasToken) {
       request.headers['Authorization'] = 'Bearer $token';
     }
+
+    // LOGGING KRUSIAL: Log request dengan status token
+    developer.log('[API Request] POST $url | Token Attached: $hasToken', level: 800);
 
     final response = await _send(request);
     return _processResponse(response);
@@ -62,14 +72,19 @@ class ApiClient {
   Future<dynamic> patch(String path, Map<String, dynamic> body) async {
     final url = _buildUri(path);
     final token = await SecureStorage.readToken();
+    final hasToken = token != null && token.isNotEmpty;
+    
     final request = http.Request('PATCH', url)
       ..followRedirects = false
       ..headers.addAll(_headers(token))
       ..body = jsonEncode(body);
 
-    if (token != null) {
+    if (hasToken) {
       request.headers['Authorization'] = 'Bearer $token';
     }
+
+    // LOGGING KRUSIAL: Log request dengan status token
+    developer.log('[API Request] PATCH $url | Token Attached: $hasToken', level: 800);
 
     final response = await _send(request);
     return _processResponse(response);
@@ -84,28 +99,25 @@ class ApiClient {
   }
 
   Future<http.Response> _send(http.Request request) async {
-    developer.log('API Request: ${request.method} ${request.url}', level: 800);
-    if (request.method == 'POST' && request.body.isNotEmpty) {
-      developer.log('  Request body: ${request.body}', level: 800);
-    }
-    
     try {
       final streamed = await _inner.send(request).timeout(
         _requestTimeout,
         onTimeout: () {
-          developer.log('Request timeout after ${_requestTimeout.inSeconds}s: ${request.url}', level: 1000);
+          // LOGGING KRUSIAL: Timeout error
+          developer.log('[API Error] ${request.url} | Status: TIMEOUT | Muatan: Request timeout after ${_requestTimeout.inSeconds}s', level: 1000);
           throw TimeoutException('Request timeout after ${_requestTimeout.inSeconds}s', _requestTimeout);
         },
       );
       final response = await http.Response.fromStream(streamed);
       
-      developer.log('API Response: ${response.statusCode} from ${request.url}', level: 800);
-      if (response.statusCode < 200 || response.statusCode > 201) {
-        developer.log('  Response body: ${response.body.isEmpty ? "<empty>" : response.body}', level: 800);
-        developer.log('  Content-Type: ${response.headers["content-type"]}', level: 800);
+      final status = response.statusCode;
+      
+      // LOGGING KRUSIAL: Log error untuk respons non-200
+      if (status < 200 || status > 201) {
+        final bodyPreview = response.body.isEmpty ? '<empty>' : (response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body);
+        developer.log('[API Error] ${request.url} | Status: $status | Muatan: $bodyPreview', level: 1000);
       }
 
-      final status = response.statusCode;
       // Do not auto-follow redirects for API calls. A redirect often indicates the backend
       // is applying web middleware (e.g. redirecting unauthenticated traffic to /login),
       // which breaks mobile auth flows and can surface as a confusing 405 later.
@@ -117,6 +129,10 @@ class ApiClient {
             ? locationRaw
             : (location.isAbsolute ? location.toString() : request.url.resolveUri(location).toString());
         final snippet = response.body.trim().isEmpty ? '<empty body>' : response.body.trim();
+        
+        // LOGGING KRUSIAL: Redirect error
+        developer.log('[API Error] ${request.url} | Status: $status (REDIRECT) | Muatan: Redirecting to $resolved', level: 1000);
+        
         throw ApiException(
           status,
           'Unexpected redirect while calling ${request.url} → $resolved. '
@@ -127,7 +143,10 @@ class ApiClient {
 
       return response;
     } catch (e) {
-      developer.log('API Error: $e from ${request.url}', level: 1000);
+      // LOGGING KRUSIAL: Network error
+      if (e is! ApiException && e is! TimeoutException) {
+        developer.log('[API Error] ${request.url} | Status: NETWORK_ERROR | Muatan: $e', level: 1000);
+      }
       rethrow;
     }
   }
@@ -138,8 +157,12 @@ class ApiClient {
     final contentType = resp.headers['content-type'] ?? '';
 
     if (status == 401) {
+      // LOGGING KRUSIAL: Unauthorized - force logout
+      developer.log('[API Error] ${resp.request?.url} | Status: 401 UNAUTHORIZED | Muatan: Session expired, redirecting to login', level: 1000);
+      
       // Force a logout + navigate to login (session expired)
       try {
+        await SecureStorage.clearAll();
         AppNavigator.goToLogin();
       } catch (_) {}
       throw ApiException(status, 'Unauthorized');
@@ -152,12 +175,16 @@ class ApiClient {
     }
 
     if (!contentType.toLowerCase().contains('application/json')) {
+      // LOGGING KRUSIAL: Non-JSON response
+      developer.log('[API Error] ${resp.request?.url} | Status: $status | Muatan: Expected JSON but got $contentType', level: 1000);
       throw ApiException(status, 'Expected JSON response from ${resp.request?.url}. Raw body: $body');
     }
 
     try {
       return body.isEmpty ? null : jsonDecode(body);
     } on FormatException catch (error) {
+      // LOGGING KRUSIAL: JSON parsing error
+      developer.log('[API Error] ${resp.request?.url} | Status: $status | Muatan: Invalid JSON - ${error.message}', level: 1000);
       throw ApiException(status, 'Invalid JSON response from ${resp.request?.url}. Raw body: $body (${error.message})');
     }
   }

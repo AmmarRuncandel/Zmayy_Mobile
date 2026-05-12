@@ -119,14 +119,14 @@ class _ProfilePanelState extends State<ProfilePanel> {
 
   // ── User info ──────────────────────────────────────────────────────────────
   Widget _buildUserInfo(UserProfile? profile) {
-    final username = profile?.username ?? '—';
+    final displayName = profile?.effectiveName ?? '—';
     final handle = '@${profile?.username.toLowerCase().replaceAll(' ', '') ?? '—'}';
     final email = profile?.email ?? '—';
 
     return Column(
       children: [
         Text(
-          username,
+          displayName,
           style: const TextStyle(
             color: Colors.white,
             fontSize: 20,
@@ -138,7 +138,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
           onTap: profile == null
               ? null
               : () async {
-                  final controller = TextEditingController(text: profile.username);
+                  final controller = TextEditingController(text: profile.displayName ?? profile.username);
                   // Capture appState before awaiting dialog to avoid using BuildContext across async gaps
                   final appState = Provider.of<ZmayyAppState>(context, listen: false);
 
@@ -157,7 +157,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
                     ),
                   );
                   if (result != null && result.isNotEmpty) {
-                    final updated = profile.copyWith(username: result);
+                    final updated = profile.copyWith(displayName: result);
                     await appState.updateProfileField(updated);
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama berhasil diperbarui'), behavior: SnackBarBehavior.floating));

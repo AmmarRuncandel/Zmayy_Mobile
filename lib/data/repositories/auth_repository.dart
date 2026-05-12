@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import '../../core/api_client.dart';
 import '../../core/secure_storage.dart';
@@ -12,6 +13,7 @@ class AuthRepository {
     final token = resp['access_token'] as String?;
     final user = resp['user'];
     final profile = resp['profile'];
+    
     // mobile-session in Phase 2 may not return an access_token (it's used for validation
     // and profile snapshot). Only save token when present.
     if (token != null && token.isNotEmpty) {
@@ -20,11 +22,26 @@ class AuthRepository {
     await SecureStorage.saveUser(jsonEncode(user ?? {}));
     await SecureStorage.saveProfile(jsonEncode(profile ?? {}));
 
+    // LOGGING KRUSIAL: Log saat sesi berhasil diserap
     if (profile is Map<String, dynamic>) {
+      final userId = profile['id']?.toString() ?? 'unknown';
+      final displayName = profile['username']?.toString() ?? 
+                         profile['display_name']?.toString() ?? 
+                         profile['email']?.toString() ?? 
+                         'unknown';
+      developer.log('[Session Sync] User ID: $userId | Display Name Loaded: $displayName', level: 800);
       return profile;
     }
 
-    return Map<String, dynamic>.from(profile ?? {});
+    final profileMap = Map<String, dynamic>.from(profile ?? {});
+    final userId = profileMap['id']?.toString() ?? 'unknown';
+    final displayName = profileMap['username']?.toString() ?? 
+                       profileMap['display_name']?.toString() ?? 
+                       profileMap['email']?.toString() ?? 
+                       'unknown';
+    developer.log('[Session Sync] User ID: $userId | Display Name Loaded: $displayName', level: 800);
+    
+    return profileMap;
   }
 
   /// Attempts to login. On success saves access_token and profile JSON.

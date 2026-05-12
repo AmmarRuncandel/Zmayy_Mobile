@@ -1,0 +1,505 @@
+# 🔄 Diagram Alur API - Zmayy Mobile
+
+## 1. Login Flow
+
+```
+┌─────────────┐
+│ LoginScreen │
+└──────┬──────┘
+       │
+       │ 1. User input email & password
+       ▼
+┌──────────────────┐
+│ AuthRepository   │
+│ .login()         │
+└──────┬───────────┘
+       │
+       │ 2. POST /api/auth/mobile-login
+       │    Body: { email, password }
+       │    LOG: [API Request] POST /api/auth/mobile-login | Token Attached: false
+       ▼
+┌──────────────────┐
+│ ApiClient        │
+│ .post()          │
+└──────┬───────────┘
+       │
+       │ 3. HTTP Request ke Vercel
+       ▼
+┌──────────────────┐
+│ Vercel Backend   │
+│ /api/auth/       │
+│ mobile-login     │
+└──────┬───────────┘
+       │
+       │ 4. Response:
+       │    {
+       │      "access_token": "...",
+       │      "user": { "id": "...", "email": "..." },
+       │      "profile": {
+       │        "id": "...",
+       │        "username": "...",
+       │        "display_name": "...",
+       │        "avatar_initials": "..."
+       │      }
+       │    }
+       ▼
+┌──────────────────┐
+│ AuthRepository   │
+│ ._persistSession │
+└──────┬───────────┘
+       │
+       │ 5. Save to SecureStorage:
+       │    - access_token
+       │    - user JSON
+       │    - profile JSON
+       │    LOG: [Session Sync] User ID: ... | Display Name Loaded: ...
+       ▼
+┌──────────────────┐
+│ ZmayyAppState    │
+│ .setProfile()    │
+└──────┬───────────┘
+       │
+       │ 6. Update UI state
+       ▼
+┌──────────────────┐
+│ AppShell         │
+│ (Home Screen)    │
+└──────────────────┘
+```
+
+---
+
+## 2. Session Validation Flow
+
+```
+┌─────────────┐
+│ AppShell    │
+│ initState() │
+└──────┬──────┘
+       │
+       │ 1. Load profile from storage
+       ▼
+┌──────────────────┐
+│ ZmayyAppState    │
+│ .loadProfile     │
+│ FromStorage()    │
+└──────┬───────────┘
+       │
+       │ 2. Read from SecureStorage
+       │    - profile JSON
+       │    - user JSON
+       ▼
+┌──────────────────┐
+│ AuthRepository   │
+│ .validateSession │
+└──────┬───────────┘
+       │
+       │ 3. GET /api/auth/mobile-session
+       │    Header: Authorization: Bearer <token>
+       │    LOG: [API Request] GET /api/auth/mobile-session | Token Attached: true
+       ▼
+┌──────────────────┐
+│ ApiClient        │
+│ .get()           │
+└──────┬───────────┘
+       │
+       │ 4. HTTP Request ke Vercel
+       ▼
+┌──────────────────┐
+│ Vercel Backend   │
+│ /api/auth/       │
+│ mobile-session   │
+└──────┬───────────┘
+       │
+       │ 5. Response:
+       │    {
+       │      "session_valid": true,
+       │      "user": { ... },
+       │      "profile": {
+       │        "username": "...",
+       │        "display_name": "...",
+       │        "avatar_initials": "..."
+       │      }
+       │    }
+       │    LOG: [Session Sync] User ID: ... | Display Name Loaded: ...
+       ▼
+┌──────────────────┐
+│ UI Components    │
+│ - ProfilePanel   │
+│ - MapScreen      │
+└──────────────────┘
+```
+
+---
+
+## 3. Map Sync Flow
+
+```
+┌─────────────┐
+│ MapScreen   │
+│ initState() │
+└──────┬──────┘
+       │
+       │ 1. Request GPS permission
+       ▼
+┌──────────────────┐
+│ Geolocator       │
+│ .getCurrentPos() │
+└──────┬───────────┘
+       │
+       │ 2. Get coordinates (lat, lng)
+       ▼
+┌──────────────────┐
+│ ZmayyAppState    │
+│ .fetchNearby     │
+│ Users()          │
+└──────┬───────────┘
+       │
+       │ 3. Check ghost mode
+       │    if (isGhostMode) return;
+       ▼
+┌──────────────────┐
+│ MapRepository    │
+│ .getVisibleUsers │
+└──────┬───────────┘
+       │
+       │ 4. GET /api/map/visible?lat=...&lng=...
+       │    Header: Authorization: Bearer <token>
+       │    LOG: [API Request] GET /api/map/visible | Token Attached: true
+       ▼
+┌──────────────────┐
+│ ApiClient        │
+│ .get()           │
+└──────┬───────────┘
+       │
+       │ 5. HTTP Request ke Vercel
+       ▼
+┌──────────────────┐
+│ Vercel Backend   │
+│ /api/map/visible │
+└──────┬───────────┘
+       │
+       │ 6. Query Supabase:
+       │    - Find users within 1km
+       │    - Check friendship relation
+       │    - Return with relation_type
+       ▼
+┌──────────────────┐
+│ Response:        │
+│ [                │
+│   {              │
+│     "id": "...", │
+│     "username":  │
+│     "relation_   │
+│      type":      │
+│      "friend",   │
+│     "is_online": │
+│      true,       │
+│     "distance_   │
+│      km": 0.5,   │
+│     "last_lat":  │
+│     "last_lng":  │
+│   }              │
+│ ]                │
+└──────┬───────────┘
+       │
+       │ 7. Parse response
+       │    LOG: [Map Sync] Ditemukan X entitas di sekitar koordinat saat ini
+       ▼
+┌──────────────────┐
+│ MapScreen        │
+│ ._buildMarker()  │
+└──────┬───────────┘
+       │
+       │ 8. Render markers:
+       │    if (relation_type == 'friend')
+       │      → Ikon Emas (#FCD535)
+       │    else
+       │      → Ikon Hitam (#4B5563)
+       ▼
+┌──────────────────┐
+│ FlutterMap       │
+│ (Visual Display) │
+└──────────────────┘
+```
+
+---
+
+## 4. Error Handling Flow
+
+```
+┌─────────────┐
+│ Any API Call│
+└──────┬──────┘
+       │
+       │ HTTP Request
+       ▼
+┌──────────────────┐
+│ ApiClient._send()│
+└──────┬───────────┘
+       │
+       │ Check response status
+       ▼
+    ┌──────┐
+    │ 200? │
+    └──┬───┘
+       │ NO
+       ▼
+    ┌──────┐
+    │ 401? │──YES──┐
+    └──┬───┘       │
+       │ NO        │
+       ▼           ▼
+    ┌──────┐   ┌──────────────────┐
+    │Other │   │ LOG: [API Error] │
+    │Error │   │ Status: 401      │
+    └──┬───┘   │ UNAUTHORIZED     │
+       │       └──────┬───────────┘
+       │              │
+       │              │ 1. SecureStorage.clearAll()
+       │              │ 2. AppNavigator.goToLogin()
+       │              ▼
+       │       ┌──────────────────┐
+       │       │ LoginScreen      │
+       │       └──────────────────┘
+       │
+       ▼
+┌──────────────────┐
+│ LOG: [API Error] │
+│ Status: <CODE>   │
+│ Muatan: <BODY>   │
+└──────┬───────────┘
+       │
+       │ Throw ApiException
+       ▼
+┌──────────────────┐
+│ UI Error Handler │
+│ (SnackBar)       │
+└──────────────────┘
+```
+
+---
+
+## 5. Token Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     TOKEN LIFECYCLE                          │
+└─────────────────────────────────────────────────────────────┘
+
+1. LOGIN
+   ┌──────────────┐
+   │ User Login   │
+   └──────┬───────┘
+          │
+          │ POST /api/auth/mobile-login
+          ▼
+   ┌──────────────┐
+   │ Receive      │
+   │ access_token │
+   └──────┬───────┘
+          │
+          │ SecureStorage.saveToken(token)
+          ▼
+   ┌──────────────┐
+   │ Token Stored │
+   └──────────────┘
+
+2. USAGE
+   ┌──────────────┐
+   │ Any API Call │
+   └──────┬───────┘
+          │
+          │ token = await SecureStorage.readToken()
+          ▼
+   ┌──────────────┐
+   │ Add Header:  │
+   │ Authorization│
+   │ Bearer token │
+   └──────┬───────┘
+          │
+          │ LOG: [API Request] ... | Token Attached: true
+          ▼
+   ┌──────────────┐
+   │ Send Request │
+   └──────────────┘
+
+3. EXPIRATION
+   ┌──────────────┐
+   │ API Response │
+   │ 401          │
+   └──────┬───────┘
+          │
+          │ LOG: [API Error] ... | Status: 401 UNAUTHORIZED
+          ▼
+   ┌──────────────┐
+   │ SecureStorage│
+   │ .clearAll()  │
+   └──────┬───────┘
+          │
+          │ AppNavigator.goToLogin()
+          ▼
+   ┌──────────────┐
+   │ LoginScreen  │
+   └──────────────┘
+
+4. LOGOUT
+   ┌──────────────┐
+   │ User Logout  │
+   └──────┬───────┘
+          │
+          │ SecureStorage.clearAll()
+          ▼
+   ┌──────────────┐
+   │ Token Deleted│
+   └──────┬───────┘
+          │
+          │ Navigate to LoginScreen
+          ▼
+   ┌──────────────┐
+   │ LoginScreen  │
+   └──────────────┘
+```
+
+---
+
+## 6. Data Flow Summary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DATA FLOW SUMMARY                         │
+└─────────────────────────────────────────────────────────────┘
+
+USER INPUT
+    │
+    ▼
+UI LAYER (Screens/Panels)
+    │
+    ▼
+STATE MANAGEMENT (ZmayyAppState)
+    │
+    ▼
+REPOSITORY LAYER (AuthRepository, MapRepository, etc.)
+    │
+    │ LOG: [API Request] <METHOD> <URL> | Token Attached: <bool>
+    ▼
+API CLIENT (ApiClient)
+    │
+    │ Add Authorization Header
+    │ Handle Errors
+    │ Parse Response
+    ▼
+HTTP REQUEST
+    │
+    ▼
+VERCEL BACKEND
+    │
+    │ Validate Token
+    │ Query Supabase
+    │ Process Business Logic
+    ▼
+HTTP RESPONSE
+    │
+    ▼
+API CLIENT
+    │
+    │ LOG: [API Error] (if error)
+    │ LOG: [Session Sync] (if session)
+    │ LOG: [Map Sync] (if map)
+    ▼
+REPOSITORY LAYER
+    │
+    │ Parse to Models
+    │ Save to SecureStorage (if needed)
+    ▼
+STATE MANAGEMENT
+    │
+    │ Update State
+    │ notifyListeners()
+    ▼
+UI LAYER
+    │
+    │ Rebuild Widgets
+    │ Display Data
+    ▼
+USER SEES RESULT
+```
+
+---
+
+## 7. Logging Points
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LOGGING POINTS                            │
+└─────────────────────────────────────────────────────────────┘
+
+1. API REQUEST (Before HTTP Send)
+   Location: ApiClient.get/post/patch()
+   Format: [API Request] <METHOD> <URL> | Token Attached: <bool>
+   Level: 800 (Info)
+
+2. API ERROR (On HTTP Error)
+   Location: ApiClient._send() & _processResponse()
+   Format: [API Error] <URL> | Status: <CODE> | Muatan: <BODY>
+   Level: 1000 (Error)
+
+3. SESSION SYNC (After Login/Validation)
+   Location: AuthRepository._persistSession()
+   Format: [Session Sync] User ID: <id> | Display Name Loaded: <name>
+   Level: 800 (Info)
+
+4. MAP SYNC (After Fetching Nearby Users)
+   Location: MapRepository.getVisibleUsers()
+   Format: [Map Sync] Ditemukan <count> entitas di sekitar koordinat saat ini
+   Level: 800 (Info)
+```
+
+---
+
+## 8. Security Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    SECURITY FLOW                             │
+└─────────────────────────────────────────────────────────────┘
+
+TOKEN STORAGE
+    │
+    ▼
+┌──────────────────┐
+│ SecureStorage    │ ← Encrypted storage (flutter_secure_storage)
+│ (Keychain/       │
+│  Keystore)       │
+└──────────────────┘
+
+TOKEN TRANSMISSION
+    │
+    ▼
+┌──────────────────┐
+│ HTTPS Only       │ ← All API calls use HTTPS
+│ TLS 1.2+         │
+└──────────────────┘
+
+TOKEN VALIDATION
+    │
+    ▼
+┌──────────────────┐
+│ Backend JWT      │ ← Vercel validates JWT signature
+│ Verification     │
+└──────────────────┘
+
+AUTO-LOGOUT
+    │
+    ▼
+┌──────────────────┐
+│ 401 Response     │ ← Automatic logout on unauthorized
+│ → Clear Storage  │
+│ → Redirect Login │
+└──────────────────┘
+```
+
+---
+
+**Last Updated:** 12 Mei 2026
+**Version:** 1.0.0

@@ -142,6 +142,9 @@ class MapScreenState extends State<MapScreen> {
 
   // ── Marker builder ─────────────────────────────────────────────────────────
   Marker _buildMarker(VisibleUser user) {
+    // LOGIKA VISUAL KETAT: Gunakan relation_type dari backend
+    // relation_type == 'friend' → Ikon Emas
+    // relation_type == 'stranger' → Ikon Hitam
     final isFriend = user.relationType == 'friend';
     final initials = _initials(user.username ?? '?');
 
@@ -174,8 +177,8 @@ class MapScreenState extends State<MapScreen> {
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: isFriend
-                      ? const Color(0xFFFCD535)
-                      : const Color(0xFF4B5563),
+                      ? const Color(0xFFFCD535) // Ikon Emas untuk friend
+                      : const Color(0xFF4B5563), // Ikon Hitam untuk stranger
                   width: 2,
                 ),
                 boxShadow: [
@@ -192,8 +195,8 @@ class MapScreenState extends State<MapScreen> {
                 initials,
                 style: TextStyle(
                   color: isFriend
-                      ? const Color(0xFFFCD535)
-                      : const Color(0xFF9CA3AF),
+                      ? const Color(0xFFFCD535) // Teks Emas untuk friend
+                      : const Color(0xFF9CA3AF), // Teks Abu untuk stranger
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),

@@ -1,6 +1,8 @@
 class UserProfile {
   final String id;
   final String username;
+  final String? displayName;
+  final String? avatarInitials;
   final String email;
   final bool isGhostMode;
   final bool isPublic;
@@ -13,6 +15,8 @@ class UserProfile {
   const UserProfile({
     required this.id,
     required this.username,
+    this.displayName,
+    this.avatarInitials,
     required this.email,
     this.isGhostMode = false,
     this.isPublic = true,
@@ -23,8 +27,17 @@ class UserProfile {
     this.notificationsEnabled = true,
   });
 
-  /// Returns 2-letter initials from username.
+  /// Returns display name if available, otherwise username
+  String get effectiveName => displayName ?? username;
+
+  /// Returns 2-letter initials from avatar_initials (backend) or computed from username.
   String get initials {
+    // Prioritas: gunakan avatar_initials dari backend jika tersedia
+    if (avatarInitials != null && avatarInitials!.isNotEmpty) {
+      return avatarInitials!.toUpperCase();
+    }
+    
+    // Fallback: compute dari username
     final t = username.trim();
     if (t.isEmpty) return 'ZM';
     final parts = t.split(RegExp(r'\s+'));
@@ -41,6 +54,8 @@ class UserProfile {
     return UserProfile(
       id: json['id']?.toString() ?? '',
       username: raw,
+      displayName: json['display_name']?.toString(),
+      avatarInitials: json['avatar_initials']?.toString(),
       email: json['email']?.toString() ?? '',
       isGhostMode: json['is_ghost_mode'] == true,
       isPublic: json['is_public'] != false,
@@ -55,6 +70,8 @@ class UserProfile {
   Map<String, dynamic> toJson() => {
         'id': id,
         'username': username,
+        'display_name': displayName,
+        'avatar_initials': avatarInitials,
         'email': email,
         'is_ghost_mode': isGhostMode,
         'is_public': isPublic,
@@ -67,6 +84,8 @@ class UserProfile {
 
   UserProfile copyWith({
     String? username,
+    String? displayName,
+    String? avatarInitials,
     String? email,
     bool? isGhostMode,
     bool? isPublic,
@@ -79,6 +98,8 @@ class UserProfile {
     return UserProfile(
       id: id,
       username: username ?? this.username,
+      displayName: displayName ?? this.displayName,
+      avatarInitials: avatarInitials ?? this.avatarInitials,
       email: email ?? this.email,
       isGhostMode: isGhostMode ?? this.isGhostMode,
       isPublic: isPublic ?? this.isPublic,
