@@ -352,7 +352,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
                       onTap: () async {
                         await Clipboard.setData(
                             ClipboardData(text: profileUrl));
-                        if (!context.mounted) return;
+                        if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Tautan profil disalin.'),
@@ -459,11 +459,9 @@ class _ProfilePanelState extends State<ProfilePanel> {
     }
 
     try {
-      await SharePlus.instance.share(
-        ShareParams(
-          text: 'Terhubung di Zmayy: $profileUrl',
-          subject: 'Profil Zmayy',
-        ),
+      await Share.share(
+        'Terhubung di Zmayy: $profileUrl',
+        subject: 'Profil Zmayy',
       );
       if (!mounted) return;
       messenger.showSnackBar(
