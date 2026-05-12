@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_state.dart';
 import '../../data/models/visible_user.dart';
+import '../../data/models/friend.dart';
 import '../../data/repositories/map_repository.dart';
 
 class MapScreen extends StatefulWidget {
@@ -18,9 +20,11 @@ class MapScreen extends StatefulWidget {
 class MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   LatLng? _center;
+  LatLng? _currentPosition;
   String? _error;
   bool _requesting = true;
   VisibleUser? _selectedUser;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
@@ -28,8 +32,15 @@ class MapScreenState extends State<MapScreen> {
     _initLocation();
   }
 
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    super.dispose();
+  }
+
   Future<void> _initLocation() async {
     try {
+      // STEP 1: Pengamanan Izin Lokasi (Permissions)
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -40,12 +51,14 @@ class MapScreenState extends State<MapScreen> {
         return;
       }
 
+      // Get initial position
       final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.best);
       if (!mounted) return;
 
       setState(() {
         _center = LatLng(pos.latitude, pos.longitude);
+        _currentPosition = LatLng(pos.latitude, pos.longitude);
         _requesting = false;
       });
 
@@ -60,6 +73,10 @@ class MapScreenState extends State<MapScreen> {
       try {
         await mapRepo.updateLocation(pos.latitude, pos.longitude);
       } catch (_) {}
+
+      // STEP 2: Aliran Lokasi Real-Time (Position Stream)
+      // Start listening to GPS position stream with high accuracy
+      _startPositionStream(appState, mapRepo);
     } catch (err) {
       if (mounted) {
         setState(() {
@@ -70,6 +87,47 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _startPositionStream(ZmayyAppState appState, MapRepository mapRepo) {
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10, // Update every 10 meters
+    );
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen(
+      (Position position) {
+        // STEP 3: Pembaruan Reaktif (State & UI Parity)
+        if (!mounted) return;
+
+        final newPosition = LatLng(position.latitude, position.longitude);
+        
+        setState(() {
+          _currentPosition = newPosition;
+        });
+
+        // Update nearby users based on new coordinates
+        // Use Future.microtask to avoid async gaps
+        Future.microtask(() async {
+          try {
+            await appState.fetchNearbyUsers(position.latitude, position.longitude);
+            await mapRepo.updateLocation(position.latitude, position.longitude);
+          } catch (_) {
+            // Silent fail - don't interrupt user experience
+          }
+        });
+      },
+      onError: (error) {
+        // Handle stream errors silently
+        if (mounted) {
+          setState(() {
+            _error = 'GPS stream error';
+          });
+        }
+      },
+    );
+  }
+
   void recenter() {
     final c = _center;
     if (c != null) {
@@ -77,10 +135,17 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  void panToLocation(double lat, double lng) {
+    _mapController.move(LatLng(lat, lng), 16);
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = Provider.of<ZmayyAppState>(context);
     final isGhost = appState.currentProfile?.isGhostMode ?? false;
+
+    // BUG FIX #2: Merge friends with visible users to show distant friend markers
+    final allMarkers = _buildMergedMarkers(appState);
 
     return Stack(
       children: [
@@ -101,13 +166,7 @@ class MapScreenState extends State<MapScreen> {
                 tileProvider: NetworkTileProvider(),
                 userAgentPackageName: 'dev.zmayy.app',
               ),
-              MarkerLayer(
-                markers: appState.visibleUsers
-                    .where((u) => u.lastLat != null && u.lastLng != null)
-                    .where((u) => u.id != appState.currentUserId) // FILTER: Kecualikan self-marker
-                    .map((u) => _buildMarker(u, appState.currentUserId))
-                    .toList(),
-              ),
+              MarkerLayer(markers: allMarkers),
             ],
           )
         else
@@ -142,15 +201,69 @@ class MapScreenState extends State<MapScreen> {
     );
   }
 
-  // ── Marker builder ─────────────────────────────────────────────────────────
-  Marker _buildMarker(VisibleUser user, String? currentUserId) {
-    // CELAH LOGIKA KRITIS #1: Filter penanda mandiri (self-marker)
-    // Marker dengan id == currentUserId sudah difilter di MarkerLayer.
-    // Jika lolos filter, berarti ini bukan self-marker.
-    
-    // LOGIKA VISUAL KETAT: Gunakan relation_type dari backend
-    // relation_type == 'friend' → Ikon Emas
-    // relation_type == 'stranger' → Ikon Hitam
+  // BUG FIX #2: Merge visible users with friends list to show distant friend markers
+  List<Marker> _buildMergedMarkers(ZmayyAppState appState) {
+    final markers = <String, Marker>{};
+    final currentUserId = appState.currentUserId;
+
+    // Add current user marker (blue dot) if position is available
+    if (_currentPosition != null) {
+      markers['__current_user__'] = _buildCurrentUserMarker(_currentPosition!);
+    }
+
+    // Add visible users (within 1KM from backend)
+    for (final user in appState.visibleUsers) {
+      if (user.lastLat == null || user.lastLng == null) continue;
+      if (user.id == currentUserId) continue; // Filter self-marker
+      
+      markers[user.id] = _buildMarkerFromVisibleUser(user, currentUserId);
+    }
+
+    // Add friends (bypass 1KM limit) - always show golden markers for friends
+    for (final friend in appState.friends) {
+      if (friend.lastLat == null || friend.lastLng == null) continue;
+      if (friend.id == currentUserId) continue; // Filter self-marker
+      
+      // Only add if not already in visible users (avoid duplicates)
+      if (!markers.containsKey(friend.id)) {
+        markers[friend.id] = _buildMarkerFromFriend(friend, currentUserId);
+      }
+    }
+
+    return markers.values.toList();
+  }
+
+  Marker _buildCurrentUserMarker(LatLng position) {
+    return Marker(
+      width: 48,
+      height: 48,
+      point: position,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFF3B82F6),
+          border: Border.all(
+            color: Colors.white,
+            width: 3,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x663B82F6),
+              blurRadius: 16,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.navigation,
+          color: Colors.white,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Marker _buildMarkerFromVisibleUser(VisibleUser user, String? currentUserId) {
     final isFriend = user.relationType == 'friend';
     final initials = _initials(user.username ?? '?');
 
@@ -170,58 +283,97 @@ class MapScreenState extends State<MapScreen> {
             }
           });
         },
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: isFriend
-                    ? const Color(0xFF181A20)
-                    : const Color(0xFF111318),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isFriend
-                      ? const Color(0xFFFCD535) // Ikon Emas untuk friend
-                      : const Color(0xFF4B5563), // Ikon Hitam untuk stranger
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: isFriend
-                        ? const Color(0x72FCD535)
-                        : const Color(0x4C4B5563),
-                    blurRadius: 12,
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                initials,
-                style: TextStyle(
-                  color: isFriend
-                      ? const Color(0xFFFCD535) // Teks Emas untuk friend
-                      : const Color(0xFF9CA3AF), // Teks Abu untuk stranger
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            // Online indicator dot
-            if (user.isOnline)
-              Container(
-                margin: const EdgeInsets.only(top: 3),
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF22C55E),
-                  shape: BoxShape.circle,
-                ),
-              ),
-          ],
-        ),
+        child: _buildMarkerWidget(initials, isFriend, user.isOnline),
       ),
+    );
+  }
+
+  Marker _buildMarkerFromFriend(Friend friend, String? currentUserId) {
+    final initials = _initials(friend.username);
+    
+    // Convert Friend to VisibleUser for popup display
+    final visibleUser = VisibleUser(
+      id: friend.id,
+      username: friend.username,
+      isOnline: friend.isOnline,
+      distanceKm: friend.distanceKm ?? 0.0,
+      lastLat: friend.lastLat,
+      lastLng: friend.lastLng,
+      relationType: 'friend',
+    );
+
+    return Marker(
+      width: 48,
+      height: 56,
+      point: LatLng(friend.lastLat ?? 0.0, friend.lastLng ?? 0.0),
+      builder: (ctx) => GestureDetector(
+        onTap: () {
+          setState(() {
+            _selectedUser = visibleUser;
+          });
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!mounted) return;
+            if (_selectedUser?.id == friend.id) {
+              setState(() => _selectedUser = null);
+            }
+          });
+        },
+        child: _buildMarkerWidget(initials, true, friend.isOnline),
+      ),
+    );
+  }
+
+  Widget _buildMarkerWidget(String initials, bool isFriend, bool isOnline) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: isFriend
+                ? const Color(0xFF181A20)
+                : const Color(0xFF111318),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isFriend
+                  ? const Color(0xFFFCD535) // Golden marker for friends
+                  : const Color(0xFF4B5563), // Gray marker for strangers
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isFriend
+                    ? const Color(0x72FCD535)
+                    : const Color(0x4C4B5563),
+                blurRadius: 12,
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            initials,
+            style: TextStyle(
+              color: isFriend
+                  ? const Color(0xFFFCD535) // Golden text for friends
+                  : const Color(0xFF9CA3AF), // Gray text for strangers
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        // Online indicator dot
+        if (isOnline)
+          Container(
+            margin: const EdgeInsets.only(top: 3),
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Color(0xFF22C55E),
+              shape: BoxShape.circle,
+            ),
+          ),
+      ],
     );
   }
 

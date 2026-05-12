@@ -168,12 +168,25 @@ class ApiClient {
     if (status < 200 || status >= 300) {
       final location = resp.headers['location'];
       final extra = location == null ? '' : ' Location: $location';
+      
+      // CRITICAL: Check if response is HTML (404 page)
+      if (contentType.toLowerCase().contains('text/html')) {
+        developer.log('[API Error] $requestUrl | Status: $status | Muatan: Received HTML instead of JSON (endpoint may not exist)', level: 1000);
+        throw ApiException(status, 'Endpoint not found or returned HTML. Expected JSON response.');
+      }
+      
       throw ApiException(status, '${_messageFromResponse(status, body, contentType)}$extra');
     }
 
     if (!contentType.toLowerCase().contains('application/json')) {
       developer.log('[API Error] $requestUrl | Status: $status | Muatan: Expected JSON but got $contentType', level: 1000);
-      throw ApiException(status, 'Expected JSON response from $requestUrl. Raw body: $body');
+      
+      // If it's HTML, provide clear error
+      if (contentType.toLowerCase().contains('text/html')) {
+        throw ApiException(status, 'Received HTML response instead of JSON. Endpoint may not exist on backend.');
+      }
+      
+      throw ApiException(status, 'Expected JSON response from $requestUrl. Got: $contentType');
     }
 
     try {

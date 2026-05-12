@@ -5,17 +5,25 @@ import 'package:flutter/foundation.dart';
 import '../data/models/visible_user.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
+import '../data/models/friend.dart';
 import '../data/repositories/map_repository.dart';
 import '../data/repositories/chat_repository.dart';
 import '../data/repositories/profile_repository.dart';
+import '../data/repositories/friends_repository.dart';
 import 'secure_storage.dart';
 
 class ZmayyAppState extends ChangeNotifier {
   final MapRepository mapRepository;
   final ChatRepository chatRepository;
   final ProfileRepository? profileRepository;
+  final FriendsRepository? friendsRepository;
 
-  ZmayyAppState({required this.mapRepository, required this.chatRepository, this.profileRepository}) {
+  ZmayyAppState({
+    required this.mapRepository, 
+    required this.chatRepository, 
+    this.profileRepository,
+    this.friendsRepository,
+  }) {
     _startHeartbeat();
   }
 
@@ -118,10 +126,12 @@ class ZmayyAppState extends ChangeNotifier {
 
   // ── Map state ──────────────────────────────────────────────────────────────
   final List<VisibleUser> _visibleUsers = [];
+  final List<Friend> _friends = [];
   bool isLoadingMap = false;
   String? mapError;
 
   List<VisibleUser> get visibleUsers => List.unmodifiable(_visibleUsers);
+  List<Friend> get friends => List.unmodifiable(_friends);
 
   int get onlineFriendsCount =>
       _visibleUsers.where((u) => _resolveIsFriend(u)).length;
@@ -148,16 +158,58 @@ class ZmayyAppState extends ChangeNotifier {
     lastLng = lng;
 
     try {
-      final users = await mapRepository.getVisibleUsers(lat, lng);
-      _visibleUsers
+      // Fetch both nearby users and friends list
+      final results = await Future.wait([
+        mapRepository.getVisibleUsers(lat, lng),
+        if (friendsRepository != null) friendsRepository!.getFriends() else Future.value(<Friend>[]),
+      ]);
+      
+      final users = results[0] as List<VisibleUser>;
+      final friendsList = results[1] as List<Friend>;
+      
+      // Optimize: Only update if the list actually changed
+      final hasChanged = _hasUsersChanged(users);
+      if (hasChanged) {
+        _visibleUsers
+          ..clear()
+          ..addAll(users);
+      }
+      
+      // Update friends list
+      _friends
         ..clear()
-        ..addAll(users);
+        ..addAll(friendsList);
     } catch (err) {
       mapError = err is Exception ? err.toString() : 'Gagal memuat pengguna terdekat';
     } finally {
       isLoadingMap = false;
       notifyListeners();
     }
+  }
+
+  /// Check if the user list has meaningfully changed to prevent unnecessary rebuilds
+  bool _hasUsersChanged(List<VisibleUser> newUsers) {
+    if (_visibleUsers.length != newUsers.length) return true;
+    
+    // Quick check: compare IDs and online status
+    for (int i = 0; i < _visibleUsers.length; i++) {
+      final old = _visibleUsers[i];
+      final newUser = newUsers.firstWhere(
+        (u) => u.id == old.id,
+        orElse: () => VisibleUser(
+          id: '',
+          username: '',
+          isOnline: false,
+          distanceKm: 0,
+        ),
+      );
+      
+      if (newUser.id.isEmpty || old.isOnline != newUser.isOnline) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   // ── Chat state ─────────────────────────────────────────────────────────────
@@ -189,15 +241,34 @@ class ZmayyAppState extends ChangeNotifier {
 
     try {
       final msgs = await chatRepository.getChatHistory();
-      _chatMessages
-        ..clear()
-        ..addAll(msgs);
+      
+      // Optimize: Only update if messages actually changed
+      final hasChanged = _hasMessagesChanged(msgs);
+      if (hasChanged) {
+        _chatMessages
+          ..clear()
+          ..addAll(msgs);
+      }
     } catch (err) {
       chatError = err is Exception ? err.toString() : 'Gagal memuat riwayat chat';
     } finally {
       isLoadingChat = false;
       notifyListeners();
     }
+  }
+
+  /// Check if the message list has meaningfully changed
+  bool _hasMessagesChanged(List<ChatMessage> newMessages) {
+    if (_chatMessages.length != newMessages.length) return true;
+    
+    // Quick check: compare last message ID and content
+    if (_chatMessages.isEmpty) return newMessages.isNotEmpty;
+    if (newMessages.isEmpty) return _chatMessages.isNotEmpty;
+    
+    final lastOld = _chatMessages.last;
+    final lastNew = newMessages.last;
+    
+    return lastOld.id != lastNew.id || lastOld.content != lastNew.content;
   }
 
   Future<void> sendNewMessage(String text, {String? imgUrl}) async {

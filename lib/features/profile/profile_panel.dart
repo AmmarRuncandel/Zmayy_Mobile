@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/app_state.dart';
 import '../../core/secure_storage.dart';
@@ -18,7 +18,6 @@ class ProfilePanel extends StatefulWidget {
 
 class _ProfilePanelState extends State<ProfilePanel> {
   bool _showDeleteConfirm = false;
-  static const MethodChannel _nfcChannel = MethodChannel('zmayy/nfc');
 
   @override
   Widget build(BuildContext context) {
@@ -237,6 +236,9 @@ class _ProfilePanelState extends State<ProfilePanel> {
             subtitle: 'Teman & Sekitar (1km)',
             trailing: const Icon(Icons.chevron_right,
                 color: Color(0xFF848E9C), size: 20),
+            onTap: () {
+              _showLocationSharingDialog(context, appState, profile);
+            },
             showDivider: true,
           ),
           _buildSettingRow(
@@ -318,10 +320,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
   // ── QR Section ─────────────────────────────────────────────────────────────
   Widget _buildQrSection(UserProfile? profile) {
     final handle = '@${profile?.username.toLowerCase().replaceAll(' ', '') ?? '—'}';
-    final profileUrl =
-        'https://zmayy.com/u/${profile?.id ?? ''}';
-    final qrUrl =
-        'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${Uri.encodeComponent(profileUrl)}&bgcolor=FFFFFF&color=0B0E11&margin=4';
+    final profileUrl = 'https://zmayy.vercel.app/profile/${profile?.username ?? ''}';
 
     return Container(
       decoration: BoxDecoration(
@@ -352,7 +351,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // QR Code
+              // QR Code - Dynamic with qr_flutter
               Container(
                 width: 90,
                 height: 90,
@@ -360,16 +359,20 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    qrUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (ctx, err, stack) => const Center(
-                      child: Icon(Icons.qr_code_2,
-                          color: Color(0xFF0B0E11), size: 48),
-                    ),
+                padding: const EdgeInsets.all(4),
+                child: QrImageView(
+                  data: profileUrl,
+                  version: QrVersions.auto,
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Color(0xFF0B0E11),
                   ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Color(0xFF0B0E11),
+                  ),
+                  errorCorrectionLevel: QrErrorCorrectLevel.M,
                 ),
               ),
               const SizedBox(width: 16),
@@ -390,7 +393,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Tautan profil disalin.'),
+                            content: Text('Tautan profil berhasil disalin.'),
                             behavior: SnackBarBehavior.floating,
                           ),
                         );
@@ -426,7 +429,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
                         children: [
                           TextSpan(text: 'Pindai dengan '),
                           TextSpan(
-                            text: 'Zmayy Mobile',
+                            text: 'Zmayy',
                             style:
                                 TextStyle(color: Color(0xFFFCD535)),
                           ),
@@ -449,8 +452,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () async {
-                await _shareViaNfcFallback(profileUrl);
+              onPressed: () {
+                _showNfcDemoModal(profileUrl);
               },
               icon: const Icon(Icons.nfc,
                   color: Color(0xFFFCD535), size: 16),
@@ -467,55 +470,6 @@ class _ProfilePanelState extends State<ProfilePanel> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Future<void> _shareViaNfcFallback(String profileUrl) async {
-    final messenger = ScaffoldMessenger.of(context);
-
-    try {
-      final result = await _nfcChannel.invokeMethod<bool>(
-        'writeProfileLink',
-        <String, dynamic>{'url': profileUrl},
-      );
-      if (result == true) {
-        if (!mounted) return;
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Tautan berhasil ditulis ke NFC.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-    } catch (_) {
-      // Continue to share-sheet fallback.
-    }
-
-    try {
-      await Share.share(
-        'Terhubung di Zmayy: $profileUrl',
-        subject: 'Profil Zmayy',
-      );
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Membuka menu berbagi. Jika dibatalkan, tautan bisa disalin manual.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    } catch (_) {
-      // Continue to clipboard fallback.
-    }
-
-    await Clipboard.setData(ClipboardData(text: profileUrl));
-    if (!mounted) return;
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text('NFC/share tidak tersedia, tautan disalin ke clipboard.'),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -885,6 +839,252 @@ class _ProfilePanelState extends State<ProfilePanel> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── NFC Demo Modal ─────────────────────────────────────────────────────────
+  void _showNfcDemoModal(String profileUrl) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF181A20),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2B2F36),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFCD535).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.nfc, color: Color(0xFFFCD535), size: 40),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Fitur NFC Aktif',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Tempelkan bagian belakang ponsel ke perangkat Zmayy lain untuk mentransfer profil.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF848E9C),
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.8, end: 1.2),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeInOut,
+              builder: (context, scale, child) {
+                return Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFFCD535).withValues(alpha: 0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFCD535).withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.phone_android,
+                          color: Color(0xFFFCD535),
+                          size: 40,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+              onEnd: () {
+                // Loop animation
+                if (mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  final nav = Navigator.of(context);
+                  final messenger = ScaffoldMessenger.of(context);
+                  nav.pop();
+                  Clipboard.setData(ClipboardData(text: profileUrl)).then((_) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('Tautan profil disalin sebagai alternatif.'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFCD535),
+                  foregroundColor: const Color(0xFF0B0E11),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Salin Tautan Sebagai Alternatif',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Location Sharing Dialog ────────────────────────────────────────────────
+  Future<void> _showLocationSharingDialog(
+    BuildContext context,
+    ZmayyAppState appState,
+    UserProfile? profile,
+  ) async {
+    if (profile == null) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF181A20),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Berbagi Lokasi',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close, color: Color(0xFF848E9C)),
+                    ),
+                  ],
+                ),
+                const Divider(color: Color(0xFF2B2F36), height: 1),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF12151B),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2B2F36)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Color(0xFFFCD535), size: 20),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Lokasi Anda dibagikan secara real-time ke teman dan pengguna dalam radius 1 km.',
+                          style: TextStyle(color: Color(0xFF848E9C), fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'PENGATURAN SAAT INI',
+                  style: TextStyle(color: Color(0xFF848E9C), fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                _infoRow(Icons.people, 'Teman', 'Selalu terlihat'),
+                const SizedBox(height: 10),
+                _infoRow(Icons.public, 'Pengguna Sekitar', 'Dalam radius 1 km'),
+                const SizedBox(height: 10),
+                _infoRow(Icons.update, 'Pembaruan', 'Setiap 30 detik'),
+                const SizedBox(height: 16),
+                const Text(
+                  'Gunakan Mode Hantu untuk menyembunyikan lokasi Anda dari semua pengguna.',
+                  style: TextStyle(color: Color(0xFF848E9C), fontSize: 12, fontStyle: FontStyle.italic),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2B2F36),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Mengerti', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _infoRow(IconData icon, String title, String value) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFF848E9C), size: 18),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(color: Color(0xFFFCD535), fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ],
     );
   }
 }

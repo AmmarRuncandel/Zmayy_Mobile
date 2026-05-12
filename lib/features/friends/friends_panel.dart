@@ -8,7 +8,13 @@ import '../chat/chat_detail_screen.dart';
 /// Phase 2.1 — Friends panel UI parity (data still placeholder).
 class FriendsPanel extends StatefulWidget {
   final VoidCallback onClose;
-  const FriendsPanel({super.key, required this.onClose});
+  final void Function(double lat, double lng)? onGoToLocation;
+  
+  const FriendsPanel({
+    super.key, 
+    required this.onClose,
+    this.onGoToLocation,
+  });
 
   @override
   State<FriendsPanel> createState() => _FriendsPanelState();
@@ -369,6 +375,8 @@ class _FriendsPanelState extends State<FriendsPanel> {
 
   Widget _friendTile(Friend friend) {
     final initials = _initials(friend.username);
+    final hasLocation = friend.lastLat != null && friend.lastLng != null;
+    
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -409,6 +417,31 @@ class _FriendsPanelState extends State<FriendsPanel> {
               ],
             ),
           ),
+          // "Go to Location" button - feature parity dengan web
+          if (hasLocation)
+            GestureDetector(
+              onTap: () {
+                widget.onGoToLocation?.call(friend.lastLat!, friend.lastLng!);
+                widget.onClose();
+              },
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCD535).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFFCD535).withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.location_on,
+                  color: Color(0xFFFCD535),
+                  size: 18,
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -3,12 +3,16 @@ class Friend {
   final String username;
   final bool isOnline;
   final double? distanceKm;
+  final double? lastLat;
+  final double? lastLng;
 
   const Friend({
     required this.id,
     required this.username,
     required this.isOnline,
     this.distanceKm,
+    this.lastLat,
+    this.lastLng,
   });
 
   String get subtitle {
@@ -21,9 +25,9 @@ class Friend {
 
   factory Friend.fromJson(Map<String, dynamic> json) {
     // Accept multiple shapes:
-    // - { id, username, is_online, distance_km }
-    // - { friend: { id, username, ... }, is_online, distance_km }
-    // - { profile: { id, username, ... }, is_online, distance_km }
+    // - { id, username, is_online, distance_km, last_lat, last_lng }
+    // - { friend: { id, username, ... }, is_online, distance_km, last_lat, last_lng }
+    // - { profile: { id, username, ... }, is_online, distance_km, last_lat, last_lng }
     final embedded = _firstMap(json['friend']) ?? _firstMap(json['profile']) ?? const <String, dynamic>{};
 
     final id = (json['id'] ?? embedded['id'])?.toString() ?? '';
@@ -36,12 +40,16 @@ class Friend {
 
     final isOnline = (json['is_online'] ?? embedded['is_online']) == true;
     final distanceKm = _parseDouble(json['distance_km'] ?? embedded['distance_km']);
+    final lastLat = _parseDouble(json['last_lat'] ?? embedded['last_lat']);
+    final lastLng = _parseDouble(json['last_lng'] ?? embedded['last_lng']);
 
     return Friend(
       id: id,
       username: username,
       isOnline: isOnline,
       distanceKm: distanceKm,
+      lastLat: lastLat,
+      lastLng: lastLng,
     );
   }
 

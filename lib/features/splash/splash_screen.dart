@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../app_shell.dart';
 import '../../data/repositories/auth_repository.dart';
-import '../../core/theme.dart';
 import '../../core/secure_storage.dart';
 import '../auth/login_screen.dart';
 
@@ -27,22 +26,23 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 1200),
     )..forward();
 
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
-      curve: Curves.easeOut,
+      curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.92, end: 1).animate(
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: Curves.easeOutBack,
+        curve: Curves.easeOutCubic,
       ),
     );
 
-    Timer(const Duration(milliseconds: 2500), _routeFromSession);
+    // Hold splash for exactly 2 seconds
+    Timer(const Duration(seconds: 2), _routeFromSession);
   }
 
   Future<void> _routeFromSession() async {
@@ -69,14 +69,24 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   void _goToLogin() {
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder<void>(
         pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
-        transitionDuration: const Duration(milliseconds: 450),
+        transitionDuration: const Duration(milliseconds: 400),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
             opacity: animation,
-            child: child,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.02),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              )),
+              child: child,
+            ),
           );
         },
       ),
@@ -84,14 +94,24 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   void _goToAppShell() {
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder<void>(
         pageBuilder: (context, animation, secondaryAnimation) => const AppShell(),
-        transitionDuration: const Duration(milliseconds: 450),
+        transitionDuration: const Duration(milliseconds: 400),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
             opacity: animation,
-            child: child,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.02),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              )),
+              child: child,
+            ),
           );
         },
       ),
@@ -107,95 +127,99 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 1.1,
-            colors: [
-              Color(0xFF12171D),
-              AppTheme.backgroundColor,
-              Color(0xFF090C0F),
-            ],
-          ),
-        ),
-        child: Center(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: ScaleTransition(
-              scale: _scaleAnimation,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 220,
-                        height: 220,
+      backgroundColor: const Color(0xFF0B0E11),
+      body: Center(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Golden Aura + Rounded Logo
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Breathing golden glow
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.8, end: 1.0),
+                      duration: const Duration(milliseconds: 1500),
+                      curve: Curves.easeInOut,
+                      builder: (context, value, child) {
+                        return Container(
+                          width: 200 * value,
+                          height: 200 * value,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                const Color(0xFFFCD535).withValues(alpha: 0.25 * value),
+                                const Color(0xFFFCD535).withValues(alpha: 0.12 * value),
+                                Colors.transparent,
+                              ],
+                              stops: const [0.0, 0.5, 1.0],
+                            ),
+                          ),
+                        );
+                      },
+                      onEnd: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    // Rounded logo container
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(32),
+                      child: Container(
+                        width: 120,
+                        height: 120,
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              AppTheme.applyOpacity(AppTheme.primaryGold, 0.22),
-                              AppTheme.applyOpacity(AppTheme.primaryGold, 0.08),
-                              Colors.transparent,
-                            ],
-                            stops: const [0.0, 0.5, 1.0],
+                          color: const Color(0xFF181A20),
+                          borderRadius: BorderRadius.circular(32),
+                          border: Border.all(
+                            color: const Color(0xFFFCD535).withValues(alpha: 0.3),
+                            width: 2,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: AppTheme.applyOpacity(AppTheme.primaryGold, 0.14),
-                              blurRadius: 72,
-                              spreadRadius: 8,
+                              color: const Color(0xFFFCD535).withValues(alpha: 0.4),
+                              blurRadius: 32,
+                              spreadRadius: 4,
                             ),
                           ],
                         ),
-                      ),
-                      Container(
-                        width: 164,
-                        height: 164,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppTheme.applyOpacity(AppTheme.surfaceColor, 0.36),
-                          border: Border.all(
-                            color: AppTheme.applyOpacity(AppTheme.primaryGold, 0.16),
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(26),
+                        padding: const EdgeInsets.all(20),
                         child: Image.asset(
                           'assets/images/zmay_logo.png',
                           fit: BoxFit.contain,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  const Text(
-                    'Zmayy',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
                     ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                // App name
+                const Text(
+                  'Zmayy',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Berinterkasi dengan temanmu dan temukan lokasi nya dengan mudah',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary,
-                    ),
+                ),
+                const SizedBox(height: 12),
+                // Tagline
+                const Text(
+                  'Connecting Spatially.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF848E9C),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.5,
                   ),
-                  const SizedBox(height: 24),
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
