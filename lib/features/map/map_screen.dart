@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_state.dart';
 import '../../data/models/visible_user.dart';
+import '../../data/repositories/map_repository.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -48,8 +49,16 @@ class MapScreenState extends State<MapScreen> {
         _requesting = false;
       });
 
+      // Capture repositories / state before awaiting to avoid using BuildContext across async gaps
       final appState = Provider.of<ZmayyAppState>(context, listen: false);
+      final mapRepo = Provider.of<MapRepository>(context, listen: false);
+
       await appState.fetchNearbyUsers(pos.latitude, pos.longitude);
+
+      // Tell backend we're enabling map sharing for this session
+      try {
+        await mapRepo.enableMap(pos.latitude, pos.longitude);
+      } catch (_) {}
     } catch (err) {
       if (mounted) {
         setState(() {

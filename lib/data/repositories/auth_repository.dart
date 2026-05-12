@@ -12,12 +12,11 @@ class AuthRepository {
     final token = resp['access_token'] as String?;
     final user = resp['user'];
     final profile = resp['profile'];
-
-    if (token == null || token.isEmpty) {
-      throw Exception('Auth response missing access_token');
+    // mobile-session in Phase 2 may not return an access_token (it's used for validation
+    // and profile snapshot). Only save token when present.
+    if (token != null && token.isNotEmpty) {
+      await SecureStorage.saveToken(token);
     }
-
-    await SecureStorage.saveToken(token);
     await SecureStorage.saveUser(jsonEncode(user ?? {}));
     await SecureStorage.saveProfile(jsonEncode(profile ?? {}));
 
@@ -41,7 +40,12 @@ class AuthRepository {
   /// Validates the current token against the backend and refreshes the stored profile.
   Future<Map<String, dynamic>> validateSession() async {
     final resp = await _client.get('/api/auth/mobile-session');
-    return _persistSession(Map<String, dynamic>.from(resp as Map));
+    final data = Map<String, dynamic>.from(resp as Map);
+    final valid = data['session_valid'];
+    if (valid is bool && valid == false) {
+      throw Exception('Session invalid');
+    }
+    return _persistSession(data);
   }
 
   /// Attempts to register a new user. On success saves access_token and profile JSON.

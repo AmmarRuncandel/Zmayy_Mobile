@@ -7,13 +7,15 @@ import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
 import '../data/repositories/map_repository.dart';
 import '../data/repositories/chat_repository.dart';
+import '../data/repositories/profile_repository.dart';
 import 'secure_storage.dart';
 
 class ZmayyAppState extends ChangeNotifier {
   final MapRepository mapRepository;
   final ChatRepository chatRepository;
+  final ProfileRepository? profileRepository;
 
-  ZmayyAppState({required this.mapRepository, required this.chatRepository}) {
+  ZmayyAppState({required this.mapRepository, required this.chatRepository, this.profileRepository}) {
     _startHeartbeat();
   }
 
@@ -61,7 +63,12 @@ class ZmayyAppState extends ChangeNotifier {
     _currentUserId = updated.id.isEmpty ? _currentUserId : updated.id;
     notifyListeners();
     try {
+      // Persist locally
       await SecureStorage.saveProfile(jsonEncode(updated.toJson()));
+      // Persist remotely if repository available
+      if (profileRepository != null) {
+        await profileRepository!.updateProfile(updated.toJson());
+      }
     } catch (_) {}
   }
 
@@ -71,6 +78,13 @@ class ZmayyAppState extends ChangeNotifier {
 
     final updated = current.copyWith(isGhostMode: enabled);
     await updateProfileField(updated);
+
+    // Send update to server
+    try {
+      if (profileRepository != null) {
+        await profileRepository!.updateProfile({'is_ghost_mode': enabled});
+      }
+    } catch (_) {}
 
     if (enabled) {
       _visibleUsers.clear();

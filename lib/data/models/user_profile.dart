@@ -8,6 +8,7 @@ class UserProfile {
   final bool notifyRequests;
   final bool notifyMessages;
   final bool notifySound;
+  final bool notificationsEnabled;
 
   const UserProfile({
     required this.id,
@@ -19,6 +20,7 @@ class UserProfile {
     this.notifyRequests = true,
     this.notifyMessages = true,
     this.notifySound = true,
+    this.notificationsEnabled = true,
   });
 
   /// Returns 2-letter initials from username.
@@ -46,6 +48,7 @@ class UserProfile {
       notifyRequests: json['notify_requests'] != false,
       notifyMessages: json['notify_messages'] != false,
       notifySound: json['notify_sound'] != false,
+      notificationsEnabled: json['notifications_enabled'] != false,
     );
   }
 
@@ -59,26 +62,31 @@ class UserProfile {
         'notify_requests': notifyRequests,
         'notify_messages': notifyMessages,
         'notify_sound': notifySound,
+        'notifications_enabled': notificationsEnabled,
       };
 
   UserProfile copyWith({
+    String? username,
+    String? email,
     bool? isGhostMode,
     bool? isPublic,
     bool? notifyGlobal,
     bool? notifyRequests,
     bool? notifyMessages,
     bool? notifySound,
+    bool? notificationsEnabled,
   }) {
     return UserProfile(
       id: id,
-      username: username,
-      email: email,
+      username: username ?? this.username,
+      email: email ?? this.email,
       isGhostMode: isGhostMode ?? this.isGhostMode,
       isPublic: isPublic ?? this.isPublic,
       notifyGlobal: notifyGlobal ?? this.notifyGlobal,
       notifyRequests: notifyRequests ?? this.notifyRequests,
       notifyMessages: notifyMessages ?? this.notifyMessages,
       notifySound: notifySound ?? this.notifySound,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
     );
   }
 }

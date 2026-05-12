@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'config.dart';
 import 'secure_storage.dart';
+import 'app_navigator.dart';
 
 class ApiException implements Exception {
   final int statusCode;
@@ -34,6 +35,10 @@ class ApiClient {
       ..followRedirects = false
       ..headers.addAll(_headers(token));
 
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
     final response = await _send(request);
     return _processResponse(response);
   }
@@ -45,6 +50,26 @@ class ApiClient {
       ..followRedirects = false
       ..headers.addAll(_headers(token))
       ..body = jsonEncode(body);
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    final response = await _send(request);
+    return _processResponse(response);
+  }
+
+  Future<dynamic> patch(String path, Map<String, dynamic> body) async {
+    final url = _buildUri(path);
+    final token = await SecureStorage.readToken();
+    final request = http.Request('PATCH', url)
+      ..followRedirects = false
+      ..headers.addAll(_headers(token))
+      ..body = jsonEncode(body);
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     final response = await _send(request);
     return _processResponse(response);
@@ -111,6 +136,14 @@ class ApiClient {
     final status = resp.statusCode;
     final body = resp.body;
     final contentType = resp.headers['content-type'] ?? '';
+
+    if (status == 401) {
+      // Force a logout + navigate to login (session expired)
+      try {
+        AppNavigator.goToLogin();
+      } catch (_) {}
+      throw ApiException(status, 'Unauthorized');
+    }
 
     if (status != 200 && status != 201) {
       final location = resp.headers['location'];

@@ -134,14 +134,44 @@ class _ProfilePanelState extends State<ProfilePanel> {
           ),
         ),
         const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(handle,
-                style: const TextStyle(color: Color(0xFF848E9C), fontSize: 13)),
-            const SizedBox(width: 6),
-            const Icon(Icons.edit_outlined, color: Color(0xFF848E9C), size: 14),
-          ],
+        GestureDetector(
+          onTap: profile == null
+              ? null
+              : () async {
+                  final controller = TextEditingController(text: profile.username);
+                  // Capture appState before awaiting dialog to avoid using BuildContext across async gaps
+                  final appState = Provider.of<ZmayyAppState>(context, listen: false);
+
+                  final result = await showDialog<String?>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Ubah Nama'),
+                      content: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(hintText: 'Nama tampil'),
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Batal')),
+                        ElevatedButton(onPressed: () => Navigator.of(ctx).pop(controller.text.trim()), child: const Text('Simpan')),
+                      ],
+                    ),
+                  );
+                  if (result != null && result.isNotEmpty) {
+                    final updated = profile.copyWith(username: result);
+                    await appState.updateProfileField(updated);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama berhasil diperbarui'), behavior: SnackBarBehavior.floating));
+                  }
+                },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(handle,
+                  style: const TextStyle(color: Color(0xFF848E9C), fontSize: 13)),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit_outlined, color: Color(0xFF848E9C), size: 14),
+            ],
+          ),
         ),
         const SizedBox(height: 4),
         Text(email,

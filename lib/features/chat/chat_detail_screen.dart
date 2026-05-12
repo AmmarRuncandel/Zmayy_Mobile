@@ -319,8 +319,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       itemBuilder: (context, i) {
         final m = messages[i];
         final mine = myUserId != null && m.senderId == myUserId;
-        return Align(
-          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        // Slide-in animation: mine from right, others from left
+        return TweenAnimationBuilder<Offset>(
+          tween: Tween<Offset>(begin: Offset(mine ? 0.25 : -0.25, 0), end: Offset.zero),
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          builder: (context, offset, child) {
+            return Transform.translate(
+              offset: Offset(offset.dx * MediaQuery.of(context).size.width * 0.18, 0),
+              child: Align(
+                alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                child: child,
+              ),
+            );
+          },
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 6),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

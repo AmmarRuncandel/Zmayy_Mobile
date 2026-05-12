@@ -18,4 +18,12 @@ class MapRepository {
       return VisibleUser.fromJson(Map<String, dynamic>.from(e as Map));
     }).toList();
   }
+
+  /// Notify backend of current location and enable mapping for this session.
+  Future<void> enableMap(double lat, double lng) async {
+    await _client.post('/api/map/enable', {
+      'lat': lat,
+      'lng': lng,
+    });
+  }
 }
